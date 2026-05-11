@@ -5,6 +5,7 @@ import {Tree} from '../src/core/tree.js';
 import {
     Orientation, nextOrientation, getMaster, getMasterLeaf,
     insertMaster, rebalanceStack, removeMaster,
+    swapWithMaster, rebuildShape,
 } from '../src/core/masterLayout.js';
 
 const win = (id) => ({id, toString: () => `win-${id}`});
@@ -264,5 +265,79 @@ describe('removeMaster', () => {
 
         assert.equal(tree.root.type, 'leaf');
         assert.equal(tree.root.window, s0);
+    });
+});
+
+describe('swapWithMaster', () => {
+    it('swaps master and focused stack window in-place', () => {
+        const tree = new Tree();
+        const [wm, s0, s1] = [win('m'), win('s0'), win('s1')];
+        for (const w of [wm, s0, s1])
+            insertMaster(tree, w, Orientation.LEFT, 0.55);
+
+        swapWithMaster(tree, s1, Orientation.LEFT);
+
+        // s1 is now master, wm has taken s1's stack slot
+        assert.equal(getMaster(tree, Orientation.LEFT), s1);
+        assert.equal(tree.findLeaf(wm).window, wm);
+
+        // Stack now has s0, wm (in that order)
+        const stack = tree.root.childB;
+        assert.equal(stack.childA.window, s0);
+        assert.equal(stack.childB.window, wm);
+    });
+
+    it('no-op when focused window is already master', () => {
+        const tree = new Tree();
+        const [wm, s0] = [win('m'), win('s0')];
+        insertMaster(tree, wm, Orientation.LEFT, 0.55);
+        insertMaster(tree, s0, Orientation.LEFT, 0.55);
+
+        swapWithMaster(tree, wm, Orientation.LEFT);
+
+        assert.equal(getMaster(tree, Orientation.LEFT), wm);
+    });
+
+    it('no-op when focused window not in tree', () => {
+        const tree = new Tree();
+        insertMaster(tree, win('m'), Orientation.LEFT, 0.55);
+
+        swapWithMaster(tree, win('outside'), Orientation.LEFT);
+        // Doesn't throw, state unchanged
+    });
+});
+
+describe('rebuildShape', () => {
+    it('empty window list empties tree', () => {
+        const tree = new Tree();
+        insertMaster(tree, win(1), Orientation.LEFT, 0.55);
+        rebuildShape(tree, [], Orientation.LEFT, 0.55);
+        assert.equal(tree.root, null);
+    });
+
+    it('produces canonical shape from a flat list', () => {
+        const tree = new Tree();
+        const wins = [win('m'), win('s0'), win('s1'), win('s2')];
+        rebuildShape(tree, wins, Orientation.LEFT, 0.6);
+
+        assert.equal(tree.root.type, 'fork');
+        assert.ok(Math.abs(tree.root.splitRatio - 0.6) < 1e-9);
+        assert.equal(tree.root.childA.window, wins[0]);
+
+        const stack = tree.root.childB;
+        assert.equal(stack.childA.window, wins[1]);
+        assert.equal(stack.childB.childA.window, wins[2]);
+        assert.equal(stack.childB.childB.window, wins[3]);
+    });
+
+    it('orientation switch preserves master via fresh rebuild', () => {
+        const tree = new Tree();
+        const wins = [win('m'), win('s0'), win('s1')];
+        rebuildShape(tree, wins, Orientation.LEFT, 0.55);
+        rebuildShape(tree, wins, Orientation.RIGHT, 0.55);
+
+        // Master is now in childB; stack chain in childA
+        assert.equal(tree.root.childB.window, wins[0]);
+        assert.equal(tree.root.childA.childA.window, wins[1]);
     });
 });

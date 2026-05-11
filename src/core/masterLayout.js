@@ -254,6 +254,38 @@ export function rebalanceStack(tree, orientation) {
 }
 
 /**
+ * Swap the focused window with the master via window-pointer swap.
+ * No-op if focused is already master, or not in the tree.
+ * @param {import('./tree.js').Tree} tree
+ * @param {object} focusedWindow
+ * @param {string} orientation
+ */
+export function swapWithMaster(tree, focusedWindow, orientation) {
+    if (!tree.contains(focusedWindow))
+        return;
+    const masterLeaf = getMasterLeaf(tree, orientation);
+    if (!masterLeaf || masterLeaf.window === focusedWindow)
+        return;
+    tree.swap(masterLeaf.window, focusedWindow);
+}
+
+/**
+ * Rebuild the tree from a flat ordered list of windows.
+ * windows[0] becomes master; windows[1..] form the stack in order.
+ * Used on layout mode / orientation change.
+ *
+ * @param {import('./tree.js').Tree} tree
+ * @param {Array} windows
+ * @param {string} orientation
+ * @param {number} mfact
+ */
+export function rebuildShape(tree, windows, orientation, mfact) {
+    tree.destroy();
+    for (const w of windows)
+        insertMaster(tree, w, orientation, mfact);
+}
+
+/**
  * Remove a window per master semantics.
  *
  * Cases:
