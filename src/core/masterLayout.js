@@ -126,6 +126,8 @@ export function getMaster(tree, orientation) {
  * @param {number} mfact - master area fraction (0.1 – 0.9)
  */
 export function insertMaster(tree, metaWindow, orientation, mfact) {
+    if (tree.contains(metaWindow))
+        return;
     const newLeaf = createLeaf(metaWindow);
     tree._windowToLeaf.set(metaWindow, newLeaf);
 

@@ -42,6 +42,19 @@ describe('insertMaster — first window', () => {
     });
 });
 
+describe('insertMaster — idempotency', () => {
+    it('inserting the same window twice is a no-op on the second call', () => {
+        const tree = new Tree();
+        const w = win('dup');
+        insertMaster(tree, w, Orientation.LEFT, 0.55);
+        const rootBefore = tree.root;
+        insertMaster(tree, w, Orientation.LEFT, 0.55);
+
+        assert.equal(tree.root, rootBefore);
+        assert.equal(tree.getWindows().length, 1);
+    });
+});
+
 describe('insertMaster — second window (each orientation)', () => {
     for (const [orient, splitDir, expectChildA, expectRatio] of [
         [Orientation.LEFT,   'horizontal', true,  0.55],
