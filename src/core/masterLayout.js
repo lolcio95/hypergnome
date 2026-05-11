@@ -111,3 +111,53 @@ export function getMaster(tree, orientation) {
     const leaf = getMasterLeaf(tree, orientation);
     return leaf ? leaf.window : null;
 }
+
+/**
+ * Insert a window per master semantics.
+ *   - Empty tree: becomes root leaf (the lone window IS the master).
+ *   - Single-leaf tree: existing window stays as master, new window becomes
+ *     stack[0]. Root becomes a fork.
+ *   - Otherwise: append new window at the bottom of the stack chain and
+ *     rebalance (handled in a later task).
+ *
+ * @param {import('./tree.js').Tree} tree
+ * @param {object} metaWindow
+ * @param {string} orientation
+ * @param {number} mfact - master area fraction (0.1 – 0.9)
+ */
+export function insertMaster(tree, metaWindow, orientation, mfact) {
+    const newLeaf = createLeaf(metaWindow);
+    tree._windowToLeaf.set(metaWindow, newLeaf);
+
+    // Empty tree → new leaf becomes root
+    if (tree.root === null) {
+        tree.root = newLeaf;
+        return;
+    }
+
+    // Single-leaf tree → existing window keeps master role, new window is stack
+    if (tree.root.type === NodeType.LEAF) {
+        const masterLeaf = tree.root;
+        const splitDir = _rootSplitDirection(orientation);
+        const ratio = _rootRatioFor(mfact, orientation);
+
+        const [childA, childB] = _masterIsChildA(orientation)
+            ? [masterLeaf, newLeaf]
+            : [newLeaf, masterLeaf];
+
+        tree.root = createFork(splitDir, ratio, childA, childB);
+        return;
+    }
+
+    // N >= 2: append to bottom of stack chain (implemented in next task)
+    _appendToStackBottom(tree, newLeaf, orientation);
+    _rebalanceStackInTree(tree, orientation);
+}
+
+// Placeholders — implemented in Task 3
+function _appendToStackBottom(_tree, _leaf, _orientation) {
+    throw new Error('not implemented');
+}
+function _rebalanceStackInTree(_tree, _orientation) {
+    // no-op for now
+}
