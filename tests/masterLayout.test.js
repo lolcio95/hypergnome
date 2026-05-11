@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {Tree} from '../src/core/tree.js';
 import {
     Orientation, nextOrientation, getMaster, getMasterLeaf,
-    insertMaster,
+    insertMaster, rebalanceStack,
 } from '../src/core/masterLayout.js';
 
 const win = (id) => ({id, toString: () => `win-${id}`});
@@ -83,4 +83,70 @@ describe('insertMaster — second window (each orientation)', () => {
             assert.equal(getMaster(tree, orient), wm);
         });
     }
+});
+
+describe('insertMaster — third+ windows (stack chain)', () => {
+    it('orientation=left: builds right-leaning V-fork chain with even ratios', () => {
+        const tree = new Tree();
+        const [wm, s0, s1, s2] = [win('m'), win('s0'), win('s1'), win('s2')];
+        for (const w of [wm, s0, s1, s2])
+            insertMaster(tree, w, Orientation.LEFT, 0.55);
+
+        // root: H-FORK(master, stack_subtree)
+        assert.equal(tree.root.type, 'fork');
+        assert.equal(tree.root.splitDirection, 'horizontal');
+        assert.equal(tree.root.childA.window, wm);
+
+        // stack_subtree = V-FORK(1/3, s0_leaf, V-FORK(1/2, s1_leaf, s2_leaf))
+        const stack = tree.root.childB;
+        assert.equal(stack.type, 'fork');
+        assert.equal(stack.splitDirection, 'vertical');
+        assert.ok(Math.abs(stack.splitRatio - 1 / 3) < 1e-9);
+        assert.equal(stack.childA.window, s0);
+
+        const inner = stack.childB;
+        assert.equal(inner.type, 'fork');
+        assert.equal(inner.splitDirection, 'vertical');
+        assert.ok(Math.abs(inner.splitRatio - 1 / 2) < 1e-9);
+        assert.equal(inner.childA.window, s1);
+        assert.equal(inner.childB.window, s2);
+    });
+
+    it('orientation=right: master in childB, stack chain still right-leaning', () => {
+        const tree = new Tree();
+        const [wm, s0, s1] = [win('m'), win('s0'), win('s1')];
+        for (const w of [wm, s0, s1])
+            insertMaster(tree, w, Orientation.RIGHT, 0.55);
+
+        assert.equal(tree.root.childB.window, wm);
+        const stack = tree.root.childA;
+        assert.equal(stack.type, 'fork');
+        assert.ok(Math.abs(stack.splitRatio - 1 / 2) < 1e-9);
+        assert.equal(stack.childA.window, s0);
+        assert.equal(stack.childB.window, s1);
+    });
+
+    it('orientation=top: stack forks are HORIZONTAL', () => {
+        const tree = new Tree();
+        const [wm, s0, s1] = [win('m'), win('s0'), win('s1')];
+        for (const w of [wm, s0, s1])
+            insertMaster(tree, w, Orientation.TOP, 0.55);
+
+        assert.equal(tree.root.splitDirection, 'vertical');
+        assert.equal(tree.root.childA.window, wm);
+        const stack = tree.root.childB;
+        assert.equal(stack.splitDirection, 'horizontal');
+    });
+
+    it('5 windows: stack ratios are 1/4, 1/3, 1/2', () => {
+        const tree = new Tree();
+        const wins = [win('m'), win(0), win(1), win(2), win(3)];
+        for (const w of wins)
+            insertMaster(tree, w, Orientation.LEFT, 0.55);
+
+        const stack = tree.root.childB;
+        assert.ok(Math.abs(stack.splitRatio - 1 / 4) < 1e-9);
+        assert.ok(Math.abs(stack.childB.splitRatio - 1 / 3) < 1e-9);
+        assert.ok(Math.abs(stack.childB.childB.splitRatio - 1 / 2) < 1e-9);
+    });
 });

@@ -156,10 +156,99 @@ export function insertMaster(tree, metaWindow, orientation, mfact) {
     _rebalanceStackInTree(tree, orientation);
 }
 
-// Placeholders — implemented in Task 3
-function _appendToStackBottom(_tree, _leaf, _orientation) {
-    throw new Error('not implemented');
+/**
+ * Return the root child that holds the stack subtree (or single stack leaf).
+ * Caller must check that tree.root is a fork.
+ */
+function _stackChildOfRoot(tree, orientation) {
+    return _masterIsChildA(orientation) ? tree.root.childB : tree.root.childA;
 }
-function _rebalanceStackInTree(_tree, _orientation) {
-    // no-op for now
+
+/**
+ * Walk a stack chain top-down, returning an array of every leaf in stack order.
+ * The chain shape is right-leaning: each non-terminal fork has its top-of-stack
+ * leaf as childA and the rest of the chain as childB.
+ */
+function _stackLeavesInOrder(stackRoot) {
+    const leaves = [];
+    let current = stackRoot;
+    while (current && current.type === NodeType.FORK) {
+        leaves.push(current.childA);
+        current = current.childB;
+    }
+    if (current && current.type === NodeType.LEAF)
+        leaves.push(current);
+    return leaves;
+}
+
+/**
+ * Append a new leaf at the bottom of the stack chain.
+ *
+ *   Before (stack has 2):       After append s2:
+ *   FORK(0.5, s0, s1)           FORK(_, s0, FORK(0.5, s1, s2))
+ *
+ * Ratios are corrected by _rebalanceStackInTree afterwards.
+ */
+function _appendToStackBottom(tree, newLeaf, orientation) {
+    const stackDir = _stackSplitDirection(orientation);
+    const stackChild = _stackChildOfRoot(tree, orientation);
+
+    if (stackChild.type === NodeType.LEAF) {
+        // Stack had exactly one window — wrap into a fork
+        const fork = createFork(stackDir, 0.5, stackChild, newLeaf);
+        if (_masterIsChildA(orientation)) {
+            tree.root.childB = fork;
+        } else {
+            tree.root.childA = fork;
+        }
+        fork.parent = tree.root;
+        return;
+    }
+
+    // Walk to the deepest fork (the one whose childB is a leaf)
+    let current = stackChild;
+    while (current.childB.type === NodeType.FORK)
+        current = current.childB;
+
+    const lastLeaf = current.childB;
+    const fork = createFork(stackDir, 0.5, lastLeaf, newLeaf);
+    current.childB = fork;
+    fork.parent = current;
+}
+
+/**
+ * Walk the stack chain and set each fork's splitRatio to 1/(K-d),
+ * where K is the total number of stack windows and d is the fork's
+ * depth from the top of the stack (0-indexed).
+ *
+ * Examples:
+ *   K=2 → ratios: 1/2
+ *   K=3 → ratios: 1/3, 1/2
+ *   K=4 → ratios: 1/4, 1/3, 1/2
+ */
+function _rebalanceStackInTree(tree, orientation) {
+    if (!tree.root || tree.root.type === NodeType.LEAF)
+        return;
+    const stackChild = _stackChildOfRoot(tree, orientation);
+    if (!stackChild || stackChild.type === NodeType.LEAF)
+        return;
+
+    const leaves = _stackLeavesInOrder(stackChild);
+    const K = leaves.length;
+
+    let current = stackChild;
+    let d = 0;
+    while (current && current.type === NodeType.FORK) {
+        current.splitRatio = 1 / (K - d);
+        d += 1;
+        current = current.childB;
+    }
+}
+
+/**
+ * Public wrapper for _rebalanceStackInTree (exported for use after
+ * removeMaster compresses the chain).
+ */
+export function rebalanceStack(tree, orientation) {
+    _rebalanceStackInTree(tree, orientation);
 }
