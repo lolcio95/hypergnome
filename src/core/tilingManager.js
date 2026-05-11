@@ -306,6 +306,8 @@ export class TilingManager {
 
     /**
      * Reset all split ratios on the active workspace to 0.5.
+     * In master mode, resets stack ratios to even sizing and restores
+     * the master/stack boundary to the current master-factor (not 0.5).
      */
     equalize() {
         if (!this._isTilingActive())
@@ -313,6 +315,22 @@ export class TilingManager {
 
         const wsIndex = global.workspace_manager.get_active_workspace_index();
         const nMonitors = global.display.get_n_monitors();
+
+        if (this._isMasterMode()) {
+            const orientation = this._settings.get_string('master-orientation');
+            const mfact = this._settings.get_double('master-factor');
+            const masterIsChildA = orientation === 'left' || orientation === 'top';
+            const newRatio = masterIsChildA ? mfact : 1 - mfact;
+
+            for (let i = 0; i < nMonitors; i++) {
+                const tree = this._getTree(wsIndex, i);
+                if (tree.root && tree.root.type === 'fork')
+                    tree.root.splitRatio = newRatio;
+                MasterLayout.rebalanceStack(tree, orientation);
+                this._applyLayout(wsIndex, i);
+            }
+            return;
+        }
 
         for (let i = 0; i < nMonitors; i++) {
             const tree = this._getTree(wsIndex, i);
@@ -619,6 +637,7 @@ export class TilingManager {
         for (const [_key, tree] of this._trees) {
             for (const win of tree.getWindows()) {
                 delete win._hypergnomeTiledRect;
+                delete win._hypergnomePreTileRect;
                 clearWindowBlock(win);
             }
         }
@@ -1335,6 +1354,9 @@ export class TilingManager {
             applyLayout: (ws, mon) => this._applyLayout(ws, mon),
             setMovingWindow: (w) => { this._movingWindow = w; },
             settings: this._settings,
+            treeInsert: (tree, w, splitTarget, ratio, rect) =>
+                this._treeInsert(tree, w, splitTarget, ratio, rect),
+            treeRemove: (tree, w) => this._treeRemove(tree, w),
         };
     }
 
