@@ -252,3 +252,58 @@ function _rebalanceStackInTree(tree, orientation) {
 export function rebalanceStack(tree, orientation) {
     _rebalanceStackInTree(tree, orientation);
 }
+
+/**
+ * Remove a window per master semantics.
+ *
+ * Cases:
+ *   1. Window not in tree → no-op.
+ *   2. Window is the lone leaf → tree.remove (empties tree).
+ *   3. Window is the master and stack is non-empty → promote topmost stack
+ *      window into the master leaf via window-pointer swap, then tree.remove
+ *      the leaf that now holds the original master window. The remove will
+ *      collapse the parent stack fork into its surviving sibling.
+ *   4. Window is in the stack → tree.remove collapses the parent fork.
+ *
+ * After cases 3 and 4, rebalance the stack chain.
+ *
+ * @param {import('./tree.js').Tree} tree
+ * @param {object} metaWindow
+ * @param {string} orientation
+ */
+export function removeMaster(tree, metaWindow, orientation) {
+    if (!tree.contains(metaWindow))
+        return;
+
+    // Case 2: lone leaf
+    if (tree.root && tree.root.type === NodeType.LEAF) {
+        tree.remove(metaWindow);
+        return;
+    }
+
+    const masterLeaf = getMasterLeaf(tree, orientation);
+    const isMaster = masterLeaf && masterLeaf.window === metaWindow;
+
+    if (isMaster) {
+        // Case 3: promote topmost stack window into master slot
+        const stackChild = _stackChildOfRoot(tree, orientation);
+        const topStackLeaf = stackChild.type === NodeType.LEAF
+            ? stackChild
+            : stackChild.childA;
+
+        // Window-pointer swap (in-place on leaves, update _windowToLeaf for both)
+        const promotedWindow = topStackLeaf.window;
+        masterLeaf.window = promotedWindow;
+        topStackLeaf.window = metaWindow;
+        tree._windowToLeaf.set(promotedWindow, masterLeaf);
+        tree._windowToLeaf.set(metaWindow, topStackLeaf);
+
+        // Now remove the leaf that holds the original master window
+        tree.remove(metaWindow);
+    } else {
+        // Case 4: stack window
+        tree.remove(metaWindow);
+    }
+
+    _rebalanceStackInTree(tree, orientation);
+}

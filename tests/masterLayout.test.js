@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {Tree} from '../src/core/tree.js';
 import {
     Orientation, nextOrientation, getMaster, getMasterLeaf,
-    insertMaster, rebalanceStack,
+    insertMaster, rebalanceStack, removeMaster,
 } from '../src/core/masterLayout.js';
 
 const win = (id) => ({id, toString: () => `win-${id}`});
@@ -181,5 +181,88 @@ describe('rebalanceStack', () => {
 
         assert.ok(Math.abs(tree.root.childB.splitRatio - 1 / 3) < 1e-9);
         assert.ok(Math.abs(tree.root.childB.childB.splitRatio - 1 / 2) < 1e-9);
+    });
+});
+
+describe('removeMaster', () => {
+    it('removing the only window empties the tree', () => {
+        const tree = new Tree();
+        const w = win(1);
+        insertMaster(tree, w, Orientation.LEFT, 0.55);
+        removeMaster(tree, w, Orientation.LEFT);
+
+        assert.equal(tree.root, null);
+        assert.equal(tree.getWindows().length, 0);
+    });
+
+    it('removing master when stack has 1 promotes stack[0] to root leaf', () => {
+        const tree = new Tree();
+        const [wm, s0] = [win('m'), win('s0')];
+        insertMaster(tree, wm, Orientation.LEFT, 0.55);
+        insertMaster(tree, s0, Orientation.LEFT, 0.55);
+
+        removeMaster(tree, wm, Orientation.LEFT);
+
+        assert.equal(tree.root.type, 'leaf');
+        assert.equal(tree.root.window, s0);
+        assert.equal(tree.getWindows().length, 1);
+    });
+
+    it('removing master with stack of 3 promotes stack[0] to master', () => {
+        const tree = new Tree();
+        const [wm, s0, s1, s2] = [win('m'), win('s0'), win('s1'), win('s2')];
+        for (const w of [wm, s0, s1, s2])
+            insertMaster(tree, w, Orientation.LEFT, 0.55);
+
+        removeMaster(tree, wm, Orientation.LEFT);
+
+        // Master slot now holds s0
+        assert.equal(tree.root.childA.window, s0);
+        // Stack now contains s1 and s2 with rebalanced ratios
+        const stack = tree.root.childB;
+        assert.equal(stack.type, 'fork');
+        assert.ok(Math.abs(stack.splitRatio - 1 / 2) < 1e-9);
+        assert.equal(stack.childA.window, s1);
+        assert.equal(stack.childB.window, s2);
+    });
+
+    it('removing mid-stack window collapses chain and rebalances', () => {
+        const tree = new Tree();
+        const [wm, s0, s1, s2] = [win('m'), win('s0'), win('s1'), win('s2')];
+        for (const w of [wm, s0, s1, s2])
+            insertMaster(tree, w, Orientation.LEFT, 0.55);
+
+        removeMaster(tree, s1, Orientation.LEFT);
+
+        // Stack now has s0 and s2 with ratio 1/2
+        const stack = tree.root.childB;
+        assert.equal(stack.type, 'fork');
+        assert.ok(Math.abs(stack.splitRatio - 1 / 2) < 1e-9);
+        assert.equal(stack.childA.window, s0);
+        assert.equal(stack.childB.window, s2);
+    });
+
+    it('removing the only stack window collapses stack subtree to master alone', () => {
+        const tree = new Tree();
+        const [wm, s0] = [win('m'), win('s0')];
+        insertMaster(tree, wm, Orientation.LEFT, 0.55);
+        insertMaster(tree, s0, Orientation.LEFT, 0.55);
+
+        removeMaster(tree, s0, Orientation.LEFT);
+
+        assert.equal(tree.root.type, 'leaf');
+        assert.equal(tree.root.window, wm);
+    });
+
+    it('removing master with stack of 1 in orientation=right promotes stack[0]', () => {
+        const tree = new Tree();
+        const [wm, s0] = [win('m'), win('s0')];
+        insertMaster(tree, wm, Orientation.RIGHT, 0.55);
+        insertMaster(tree, s0, Orientation.RIGHT, 0.55);
+
+        removeMaster(tree, wm, Orientation.RIGHT);
+
+        assert.equal(tree.root.type, 'leaf');
+        assert.equal(tree.root.window, s0);
     });
 });
