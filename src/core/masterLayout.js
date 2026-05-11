@@ -291,12 +291,8 @@ export function removeMaster(tree, metaWindow, orientation) {
             ? stackChild
             : stackChild.childA;
 
-        // Window-pointer swap (in-place on leaves, update _windowToLeaf for both)
-        const promotedWindow = topStackLeaf.window;
-        masterLeaf.window = promotedWindow;
-        topStackLeaf.window = metaWindow;
-        tree._windowToLeaf.set(promotedWindow, masterLeaf);
-        tree._windowToLeaf.set(metaWindow, topStackLeaf);
+        // Promote topmost stack window into the master slot
+        tree.swap(metaWindow, topStackLeaf.window);
 
         // Now remove the leaf that holds the original master window
         tree.remove(metaWindow);
