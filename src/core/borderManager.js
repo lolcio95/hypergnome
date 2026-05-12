@@ -17,6 +17,8 @@ import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
 import {SignalManager} from '../util/signalManager.js';
 import {
     animateBorder,
@@ -28,6 +30,12 @@ import {parseColor} from '../util/colorParser.js';
 const PULSE_SCALE = 1.04;
 const PULSE_DURATION_MS = 150;
 const PULSE_SETTLE_MS = 200;
+
+// How long after a workspace switch or button press to suppress the focus
+// pulse.  Long enough to cover the slide-in (~300ms) and any
+// touchpad-swipe settling, short enough that the next deliberate keybind
+// focus change still pulses normally.
+const PULSE_SUPPRESS_US = 400_000; // 400ms in microseconds
 
 export class BorderManager {
     /**
@@ -45,6 +53,16 @@ export class BorderManager {
         this._isGradient = false;
         this._timeline = null;
         this._gradientAngle = 0;
+
+        // Pulse-suppression timestamps (monotonic microseconds).  The focus
+        // pulse is meant to highlight keybind-driven focus changes; for
+        // workspace switches and mouse clicks the pulse is distracting and
+        // visually detaches from the window (the actor is sliding or
+        // already in place, while the border bounces).  We track the most
+        // recent ws change and button press and skip the pulse if either
+        // is recent — see _shouldPulse().
+        this._lastWsChangeTime = 0;
+        this._lastButtonPressTime = 0;
     }
 
     // =========================================================================
@@ -75,6 +93,38 @@ export class BorderManager {
         // briefly flashing the gradient outline against the background.
         this._signals.connect(global.workspace_manager, 'active-workspace-changed',
             () => this._onWorkspaceChanged());
+
+        // Touchpad 3-finger swipes go through GNOME's WorkspaceAnimation
+        // controller, which clones the workspaces and only calls
+        // newWs.activate() at the very end of the gesture (when the
+        // monitor-group ease completes).  By the time active-workspace-
+        // changed fires the user has already seen the gesture-end frame,
+        // so any residual border position on the real window_group is
+        // visible.  Hide the border at swipe-begin so it can't peek
+        // through; active-workspace-changed re-shows it.
+        //
+        // Wrapped in try/catch because _workspaceAnimation is private
+        // shell state — if a future GNOME release renames it we fall
+        // back gracefully to the existing handlers.
+        try {
+            const swipeTracker = Main.wm?._workspaceAnimation?._swipeTracker;
+            if (swipeTracker) {
+                this._signals.connect(swipeTracker, 'begin',
+                    () => this._onSwipeBegin());
+            }
+        } catch (_e) {
+            // Internal API moved — keep extension functional without
+            // the touchpad-specific path.
+        }
+
+        // Track button-press events to suppress the focus pulse when the
+        // user clicks a window to focus it.  captured-event sees every
+        // event before any actor consumes it.
+        this._signals.connect(global.stage, 'captured-event', (_actor, event) => {
+            if (event.type() === Clutter.EventType.BUTTON_PRESS)
+                this._lastButtonPressTime = GLib.get_monotonic_time();
+            return Clutter.EVENT_PROPAGATE;
+        });
 
         // Live-update on settings change
         this._signals.connect(this._settings, 'changed::active-border-size',
@@ -339,9 +389,43 @@ export class BorderManager {
         if (this._mirrorActorSlideIn(win))
             return;
 
-        // Focus pulse effect
-        if (this._settings.get_boolean('focus-pulse'))
+        // Focus pulse effect — only for keybind-driven focus changes.
+        // _shouldPulse suppresses it for workspace switches and mouse
+        // clicks where the pulse just distracts.
+        if (this._shouldPulse())
             this._doPulse();
+    }
+
+    /**
+     * The pulse is meant to draw the eye when a keybind moves focus to a
+     * different window — where the user can't otherwise see where focus
+     * went.  For workspace switches and mouse clicks the user already
+     * knows: the workspace transition or click target tells them.  In
+     * both those cases the pulse just looks like the border bouncing
+     * detached from the window.
+     */
+    _shouldPulse() {
+        if (!this._settings.get_boolean('focus-pulse'))
+            return false;
+        const now = GLib.get_monotonic_time();
+        if (now - this._lastWsChangeTime < PULSE_SUPPRESS_US)
+            return false;
+        if (now - this._lastButtonPressTime < PULSE_SUPPRESS_US)
+            return false;
+        return true;
+    }
+
+    /**
+     * Hide the border at the start of a touchpad workspace swipe.
+     * GNOME's WorkspaceAnimationController clones the workspaces and
+     * defers newWs.activate() to the swipe-end onComplete callback, so
+     * the real window_group (and the border in it) can briefly peek
+     * through at the gesture-end frame.  Hiding eagerly avoids that.
+     * The eventual active-workspace-changed handler restores it.
+     */
+    _onSwipeBegin() {
+        if (this._border)
+            this._border.hide();
     }
 
     /**
@@ -419,6 +503,11 @@ export class BorderManager {
     _onWorkspaceChanged() {
         if (!this._settings || !this._border)
             return;
+
+        // Record the time so _shouldPulse can suppress the focus pulse
+        // during the window where a workspace-switch-induced focus change
+        // would otherwise fire it.
+        this._lastWsChangeTime = GLib.get_monotonic_time();
 
         if (!this._isFocusOnActiveWs()) {
             this._border.hide();
