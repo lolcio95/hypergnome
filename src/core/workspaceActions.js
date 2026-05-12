@@ -39,13 +39,13 @@ export function switchToWorkspace(workspaceManager, index, dynamic, time = 0) {
 }
 
 export function moveActiveToWorkspace(_workspaceManager, _focusedWindow, _index, _dynamic, _time) {
-    // Filled in by Task 4
+    // Not yet implemented
 }
 
 export function cycleWorkspace(_workspaceManager, _direction, _time) {
-    // Filled in by Task 5
+    // Not yet implemented
 }
 
 export function moveActiveAndCycle(_workspaceManager, _focusedWindow, _direction, _time) {
-    // Filled in by Task 5
+    // Not yet implemented
 }

@@ -41,7 +41,6 @@ function mockWsManager({nWorkspaces, activeIndex, dynamic}) {
         // Surface state for assertions
         _activated: activated,
         _appended: appended,
-        _dynamic: dynamic,
     };
 }
 
@@ -66,8 +65,15 @@ describe('switchToWorkspace', () => {
         // Should append workspaces 2, 3, 4 and activate 4
         assert.deepEqual(wm._appended, [2, 3, 4]);
         // append_new_workspace(true, ...) activates each as appended; final activation
-        // is on workspace 4. So 4 should appear in activated.
-        assert.ok(wm._activated.includes(4));
+        // is on workspace 4. Implementation guarantees exactly one activation of 4.
+        assert.deepEqual(wm._activated, [4]);
+    });
+
+    it('activates existing workspace without appending when dynamic mode is on but target is in range', () => {
+        const wm = mockWsManager({nWorkspaces: 5, activeIndex: 0, dynamic: true});
+        switchToWorkspace(wm, 3, /*dynamic=*/true);
+        assert.deepEqual(wm._activated, [3]);
+        assert.deepEqual(wm._appended, []);
     });
 
     it('ignores negative index', () => {
