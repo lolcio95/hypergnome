@@ -22,6 +22,10 @@ import {blockWindowSignals} from './windowBlock.js';
 const DEFAULT_DURATION_MS = 200;
 const ANIM_MODE = Clutter.AnimationMode.EASE_OUT_QUAD;
 
+// Workspace-switch slide-in: shared so the border can match the window.
+export const SLIDE_OFFSET_PX = 60;
+export const SLIDE_DURATION_MULTIPLIER = 1.5;
+
 /**
  * Animate a window from its current position/size to a target rect.
  *
@@ -190,7 +194,9 @@ export function animateSlideIn(metaWindow, offsetX, offsetY, durationMs) {
     if (!actor)
         return;
 
-    const duration = Math.round((durationMs ?? DEFAULT_DURATION_MS) * 1.5);
+    const duration = Math.round(
+        (durationMs ?? DEFAULT_DURATION_MS) * SLIDE_DURATION_MULTIPLIER,
+    );
 
     actor.remove_all_transitions();
     actor.translation_x = offsetX;

@@ -18,7 +18,11 @@ import GLib from 'gi://GLib';
 import St from 'gi://St';
 
 import {SignalManager} from '../util/signalManager.js';
-import {animateBorder} from '../util/animator.js';
+import {
+    animateBorder,
+    SLIDE_OFFSET_PX,
+    SLIDE_DURATION_MULTIPLIER,
+} from '../util/animator.js';
 import {parseColor} from '../util/colorParser.js';
 
 const PULSE_SCALE = 1.04;
@@ -63,6 +67,14 @@ export class BorderManager {
         // Re-stack when z-order changes
         this._signals.connect(global.display, 'restacked',
             () => this._restack());
+
+        // Slide the border in alongside the windows on workspace switch.
+        // TilingManager applies a translate-and-fade to each window on the
+        // newly-active workspace; without this the border would appear
+        // fully drawn at the destination before the window arrives,
+        // briefly flashing the gradient outline against the background.
+        this._signals.connect(global.workspace_manager, 'active-workspace-changed',
+            () => this._onWorkspaceChanged());
 
         // Live-update on settings change
         this._signals.connect(this._settings, 'changed::active-border-size',
@@ -299,9 +311,101 @@ export class BorderManager {
         this._restack();
         this._border.show();
 
+        // If the focus event landed in the middle of a workspace-switch
+        // slide-in (TilingManager set actor.translation_y / opacity on the
+        // actor), mirror that onto the border instead of pulsing — the
+        // pulse's remove_all_transitions would fight the slide-in and the
+        // border would otherwise sit at the final position while the
+        // window catches up.
+        if (this._mirrorActorSlideIn(win))
+            return;
+
         // Focus pulse effect
         if (this._settings.get_boolean('focus-pulse'))
             this._doPulse();
+    }
+
+    /**
+     * If the focused window's actor is mid-slide-in (translation != 0 or
+     * opacity < 255), copy that transform onto the border and ease it back
+     * to identity.  Returns true if a mirror was applied.
+     */
+    _mirrorActorSlideIn(win) {
+        if (!this._border)
+            return false;
+        try {
+            const actor = win.get_compositor_private();
+            if (!actor)
+                return false;
+            const tx = actor.translation_x;
+            const ty = actor.translation_y;
+            const op = actor.opacity;
+            if (tx === 0 && ty === 0 && op === 255)
+                return false;
+
+            const dur = Math.round(
+                this._settings.get_int('animation-duration') *
+                    SLIDE_DURATION_MULTIPLIER,
+            );
+            this._border.remove_all_transitions();
+            this._border.translation_x = tx;
+            this._border.translation_y = ty;
+            this._border.opacity = op;
+            this._border.ease({
+                translation_x: 0,
+                translation_y: 0,
+                opacity: 255,
+                duration: dur,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            });
+            return true;
+        } catch (_e) {
+            return false;
+        }
+    }
+
+    /**
+     * Slide the border in from below alongside the windows on the newly
+     * active workspace.  Mutter typically fires notify::focus-window before
+     * active-workspace-changed during ws.activate(), so by the time we
+     * reach this handler _focusWindow already points at the new window —
+     * we just apply the same translate-and-fade pattern animator.js uses
+     * for window actors.  When focus instead settles *after* the workspace
+     * change, _onFocusChanged's _mirrorActorSlideIn handles it.
+     */
+    _onWorkspaceChanged() {
+        if (!this._settings || !this._border || !this._focusWindow)
+            return;
+        if (!this._settings.get_boolean('animation-enabled'))
+            return;
+
+        try {
+            const activeIdx =
+                global.workspace_manager.get_active_workspace_index();
+            const ws = this._focusWindow.get_workspace();
+            if (!ws || ws.index() !== activeIdx)
+                return;
+        } catch (_e) {
+            return;
+        }
+
+        const dur = Math.round(
+            this._settings.get_int('animation-duration') *
+                SLIDE_DURATION_MULTIPLIER,
+        );
+        // _updateGeometry resets position, scale, translation and opacity
+        // — important if a prior pulse or slide-in was cut short and left
+        // the border off-canonical (e.g. scale != 1).
+        this._updateGeometry();
+        this._border.translation_y = SLIDE_OFFSET_PX;
+        this._border.opacity = 0;
+        this._border.ease({
+            translation_x: 0,
+            translation_y: 0,
+            opacity: 255,
+            duration: dur,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+        });
     }
 
     // =========================================================================
@@ -393,6 +497,12 @@ export class BorderManager {
             this._border.set_position(rect.x - bw, rect.y - bw);
             this._border.set_size(rect.width + bw * 2, rect.height + bw * 2);
             this._border.set_scale(1, 1);
+            // Clear any leftover slide-in transform so the border doesn't
+            // sit stuck offset/transparent if a prior transition was cut
+            // short (e.g. pulse remove_all_transitions during slide-in).
+            this._border.translation_x = 0;
+            this._border.translation_y = 0;
+            this._border.opacity = 255;
 
             if (this._isGradient)
                 this._invalidateCanvas();

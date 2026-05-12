@@ -17,7 +17,7 @@ import {moveWindowToMonitor, focusOnAdjacentMonitor} from '../util/monitorUtils.
 import {shouldTile} from '../util/windowFilters.js';
 import {unmaximizeWindow, isMaximized, isConstrained, isResizeGrab} from '../util/compat.js';
 import {SignalManager} from '../util/signalManager.js';
-import {animateWindow, snapWindow, animateSlideIn} from '../util/animator.js';
+import {animateWindow, snapWindow, animateSlideIn, SLIDE_OFFSET_PX} from '../util/animator.js';
 import {blockWindowSignals, isWindowBlocked, clearWindowBlock} from '../util/windowBlock.js';
 
 const DEBOUNCE_MS = 200;
@@ -619,14 +619,13 @@ export class TilingManager {
             try {
                 const wsIndex = global.workspace_manager.get_active_workspace_index();
                 const nMonitors = global.display.get_n_monitors();
-                const SLIDE_OFFSET = 60;
                 for (let i = 0; i < nMonitors; i++) {
                     const tree = this._trees.get(`${wsIndex}:${i}`);
                     if (!tree)
                         continue;
                     const dur = this._settings.get_int('animation-duration');
                     for (const win of tree.getWindows()) {
-                        animateSlideIn(win, 0, SLIDE_OFFSET, dur);
+                        animateSlideIn(win, 0, SLIDE_OFFSET_PX, dur);
                     }
                 }
             } catch (_e) {
