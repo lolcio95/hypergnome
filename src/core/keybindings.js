@@ -116,19 +116,16 @@ export class KeybindingManager {
             this._addBinding(`tile-workspace-${i}`,
                 () => WorkspaceActions.switchToWorkspace(wm, target, isDynamic(), now()));
             this._addBinding(`tile-move-to-workspace-${i}`,
-                () => WorkspaceActions.moveActiveToWorkspace(
-                    wm, global.display.focus_window, target, isDynamic(), now()));
+                () => this._tilingManager.moveActiveToWorkspace(target, isDynamic()));
         }
         this._addBinding('tile-workspace-prev',
             () => WorkspaceActions.cycleWorkspace(wm, -1, now()));
         this._addBinding('tile-workspace-next',
             () => WorkspaceActions.cycleWorkspace(wm, +1, now()));
         this._addBinding('tile-move-workspace-prev',
-            () => WorkspaceActions.moveActiveAndCycle(
-                wm, global.display.focus_window, -1, now()));
+            () => this._tilingManager.moveActiveAndCycle(-1));
         this._addBinding('tile-move-workspace-next',
-            () => WorkspaceActions.moveActiveAndCycle(
-                wm, global.display.focus_window, +1, now()));
+            () => this._tilingManager.moveActiveAndCycle(+1));
     }
 
     _installGnomeOverrides() {
