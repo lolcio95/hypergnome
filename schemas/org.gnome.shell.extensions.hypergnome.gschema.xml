@@ -421,5 +421,68 @@
       <description>Move the focused window to the next workspace and follow</description>
     </key>
 
+    <!-- Stashed GNOME accelerators for switch-to-application-N.
+
+         While the override toggle is on, HyperGnome clears these GNOME
+         shortcuts so Super+1..9 reach our tile-workspace-N bindings
+         instead of GNOME's app-launcher action.  The originals are saved
+         here and restored on disable (or when the override toggle goes
+         off).  Persisting them in our own GSettings means a crashed
+         session can still recover the user's original bindings on next
+         enable.  Empty array = nothing stashed. -->
+    <key name="stashed-switch-to-application-1" type="as">
+      <default>[]</default>
+      <summary>Stashed accelerator for GNOME's switch-to-application-1</summary>
+      <description>Internal — original accelerator for switch-to-application-1, saved while the override toggle is on. Do not edit by hand.</description>
+    </key>
+
+    <key name="stashed-switch-to-application-2" type="as">
+      <default>[]</default>
+      <summary>Stashed accelerator for GNOME's switch-to-application-2</summary>
+      <description>Internal — original accelerator for switch-to-application-2, saved while the override toggle is on. Do not edit by hand.</description>
+    </key>
+
+    <key name="stashed-switch-to-application-3" type="as">
+      <default>[]</default>
+      <summary>Stashed accelerator for GNOME's switch-to-application-3</summary>
+      <description>Internal — original accelerator for switch-to-application-3, saved while the override toggle is on. Do not edit by hand.</description>
+    </key>
+
+    <key name="stashed-switch-to-application-4" type="as">
+      <default>[]</default>
+      <summary>Stashed accelerator for GNOME's switch-to-application-4</summary>
+      <description>Internal — original accelerator for switch-to-application-4, saved while the override toggle is on. Do not edit by hand.</description>
+    </key>
+
+    <key name="stashed-switch-to-application-5" type="as">
+      <default>[]</default>
+      <summary>Stashed accelerator for GNOME's switch-to-application-5</summary>
+      <description>Internal — original accelerator for switch-to-application-5, saved while the override toggle is on. Do not edit by hand.</description>
+    </key>
+
+    <key name="stashed-switch-to-application-6" type="as">
+      <default>[]</default>
+      <summary>Stashed accelerator for GNOME's switch-to-application-6</summary>
+      <description>Internal — original accelerator for switch-to-application-6, saved while the override toggle is on. Do not edit by hand.</description>
+    </key>
+
+    <key name="stashed-switch-to-application-7" type="as">
+      <default>[]</default>
+      <summary>Stashed accelerator for GNOME's switch-to-application-7</summary>
+      <description>Internal — original accelerator for switch-to-application-7, saved while the override toggle is on. Do not edit by hand.</description>
+    </key>
+
+    <key name="stashed-switch-to-application-8" type="as">
+      <default>[]</default>
+      <summary>Stashed accelerator for GNOME's switch-to-application-8</summary>
+      <description>Internal — original accelerator for switch-to-application-8, saved while the override toggle is on. Do not edit by hand.</description>
+    </key>
+
+    <key name="stashed-switch-to-application-9" type="as">
+      <default>[]</default>
+      <summary>Stashed accelerator for GNOME's switch-to-application-9</summary>
+      <description>Internal — original accelerator for switch-to-application-9, saved while the override toggle is on. Do not edit by hand.</description>
+    </key>
+
   </schema>
 </schemalist>
