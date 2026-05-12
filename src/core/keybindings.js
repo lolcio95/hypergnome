@@ -20,9 +20,51 @@ export class KeybindingManager {
         this._tilingManager = tilingManager;
         this._customBindings = [];
         this._overriddenBindings = [];
+        this._settingsChangedId = 0;
+        this._overrideEnabled = false;
     }
 
     enable() {
+        this._overrideEnabled = this._settings.get_boolean('override-gnome-shortcuts');
+
+        this._registerCustomBindings();
+        if (this._overrideEnabled) {
+            this._installGnomeOverrides();
+        }
+        this._connectToggleListener();
+    }
+
+    disable() {
+        if (this._settingsChangedId && this._settings) {
+            try {
+                this._settings.disconnect(this._settingsChangedId);
+            } catch (_e) {}
+            this._settingsChangedId = 0;
+        }
+
+        for (const name of this._customBindings) {
+            try {
+                Main.wm.removeKeybinding(name);
+            } catch (_e) {
+                // Already removed
+            }
+        }
+        this._customBindings = [];
+
+        for (const name of this._overriddenBindings) {
+            try {
+                Meta.keybindings_set_custom_handler(name, null);
+            } catch (_e) {
+                // Already restored
+            }
+        }
+        this._overriddenBindings = [];
+
+        this._settings = null;
+        this._tilingManager = null;
+    }
+
+    _registerCustomBindings() {
         // -- Custom keybindings (vim-style focus) --
         this._addBinding('tile-focus-left', () => this._tilingManager.focusDirection('left'));
         this._addBinding('tile-focus-down', () => this._tilingManager.focusDirection('down'));
@@ -68,7 +110,7 @@ export class KeybindingManager {
         const now = () => global.get_current_time();
 
         for (let i = 1; i <= 10; i++) {
-            const target = i - 1; // 0-based
+            const target = i - 1;
             this._addBinding(`tile-workspace-${i}`,
                 () => WorkspaceActions.switchToWorkspace(wm, target, isDynamic(), now()));
             this._addBinding(`tile-move-to-workspace-${i}`,
@@ -85,7 +127,9 @@ export class KeybindingManager {
         this._addBinding('tile-move-workspace-next',
             () => WorkspaceActions.moveActiveAndCycle(
                 wm, global.display.focus_window, +1, now()));
+    }
 
+    _installGnomeOverrides() {
         // -- Override conflicting GNOME keybindings --
 
         // Super+H is GNOME minimize — conflicts with our focus-left
@@ -97,7 +141,6 @@ export class KeybindingManager {
         this._overrideBinding('toggle-tiled-left', () => {
             this._tilingManager.focusDirection('left');
         });
-
         this._overrideBinding('toggle-tiled-right', () => {
             this._tilingManager.focusDirection('right');
         });
@@ -132,27 +175,35 @@ export class KeybindingManager {
         }
     }
 
-    disable() {
+    _connectToggleListener() {
+        this._settingsChangedId = this._settings.connect(
+            'changed::override-gnome-shortcuts',
+            () => {
+                try {
+                    this._reloadBindings();
+                } catch (e) {
+                    logError(e, 'HyperGnome: failed to reload bindings on toggle change');
+                }
+            });
+    }
+
+    _reloadBindings() {
+        // Tear down all keybindings except the settings listener, then rebuild.
         for (const name of this._customBindings) {
-            try {
-                Main.wm.removeKeybinding(name);
-            } catch (_e) {
-                // Already removed
-            }
+            try { Main.wm.removeKeybinding(name); } catch (_e) {}
         }
         this._customBindings = [];
 
         for (const name of this._overriddenBindings) {
-            try {
-                Meta.keybindings_set_custom_handler(name, null);
-            } catch (_e) {
-                // Already restored
-            }
+            try { Meta.keybindings_set_custom_handler(name, null); } catch (_e) {}
         }
         this._overriddenBindings = [];
 
-        this._settings = null;
-        this._tilingManager = null;
+        this._overrideEnabled = this._settings.get_boolean('override-gnome-shortcuts');
+        this._registerCustomBindings();
+        if (this._overrideEnabled) {
+            this._installGnomeOverrides();
+        }
     }
 
     /**
