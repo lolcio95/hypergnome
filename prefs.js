@@ -478,6 +478,21 @@ export default class HyperGnomePreferences extends ExtensionPreferences {
     // =========================================================================
 
     _buildKeybindingsPage(page, settings) {
+        // -- GNOME Integration (master override toggle) --
+        const integrationGroup = new Adw.PreferencesGroup({
+            title: _('GNOME Integration'),
+            description: _('Control whether HyperGnome takes over conflicting GNOME shortcuts.'),
+        });
+        page.add(integrationGroup);
+
+        const overrideRow = new Adw.SwitchRow({
+            title: _('Override Conflicting GNOME Shortcuts'),
+            subtitle: _('Required for default HyperGnome bindings to work. When off, conflicting shortcuts (Super+H, Super+1..9, Super+Arrows, etc.) keep their GNOME meaning; you may need to rebind HyperGnome\'s shortcuts manually.'),
+        });
+        integrationGroup.add(overrideRow);
+        settings.bind('override-gnome-shortcuts', overrideRow, 'active',
+            Gio.SettingsBindFlags.DEFAULT);
+
         // Static overrides — these are always active when the extension is enabled
         const STATIC_OVERRIDES = [
             {
