@@ -22,6 +22,7 @@ export class KeybindingManager {
         this._overriddenBindings = [];
         this._settingsChangedId = 0;
         this._overrideEnabled = false;
+        this._mutterSettings = new Gio.Settings({schema_id: 'org.gnome.mutter'});
     }
 
     enable() {
@@ -62,6 +63,7 @@ export class KeybindingManager {
 
         this._settings = null;
         this._tilingManager = null;
+        this._mutterSettings = null;
     }
 
     _registerCustomBindings() {
@@ -99,7 +101,7 @@ export class KeybindingManager {
 
         // -- Custom keybindings (workspaces, Hyprland-style) --
         const wm = global.workspace_manager;
-        const mutterSettings = new Gio.Settings({schema_id: 'org.gnome.mutter'});
+        const mutterSettings = this._mutterSettings;
         const isDynamic = () => {
             try {
                 return mutterSettings.get_boolean('dynamic-workspaces');
@@ -190,12 +192,12 @@ export class KeybindingManager {
     _reloadBindings() {
         // Tear down all keybindings except the settings listener, then rebuild.
         for (const name of this._customBindings) {
-            try { Main.wm.removeKeybinding(name); } catch (_e) {}
+            try { Main.wm.removeKeybinding(name); } catch (_e) { /* Already removed */ }
         }
         this._customBindings = [];
 
         for (const name of this._overriddenBindings) {
-            try { Meta.keybindings_set_custom_handler(name, null); } catch (_e) {}
+            try { Meta.keybindings_set_custom_handler(name, null); } catch (_e) { /* Already restored */ }
         }
         this._overriddenBindings = [];
 
