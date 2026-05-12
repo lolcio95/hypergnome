@@ -45,7 +45,20 @@ I also tried switching fully to Hyprland. The tiling model was closer to what I 
 | Equalize splits | `Super+E` | |
 | Close window | `Super+Q` | |
 
-> **Note:** HyperGnome overrides a few default GNOME keybindings while active (Super+H, Super+Left/Right, Super+Down). These are restored when the extension is disabled. See the **Keybindings** tab in preferences for a full list of overrides and any detected conflicts with your system shortcuts.
+### Workspaces (Hyprland-style)
+
+| Action | Default Accelerator |
+|--------|---------------------|
+| Switch to Workspace 1..10 | `Super+1..9`, `Super+0` |
+| Move Window to Workspace 1..10 | `Super+Shift+1..9`, `Super+Shift+0` |
+| Cycle to Previous Workspace | `Super+[` |
+| Cycle to Next Workspace | `Super+]` |
+| Move Window to Previous Workspace | `Super+Shift+[` |
+| Move Window to Next Workspace | `Super+Shift+]` |
+
+### GNOME Integration
+
+HyperGnome overrides several GNOME shortcuts that conflict with its defaults — `Super+H` (minimize), `Super+Left/Right` (half-tile), `Super+Down` (unmaximize), `Super+Shift+Arrows` (move-to-monitor), and `Super+1..9` (favourite-app launch). This is on by default. To disable, open the extension preferences → **Keybindings** → **GNOME Integration** → **Override Conflicting GNOME Shortcuts**. When off, the conflicting GNOME shortcuts keep their native meaning and you may need to rebind HyperGnome's defaults manually. All overrides are fully restored when the extension is disabled. The **Keybindings** tab also surfaces any detected conflicts with your other system shortcuts.
 
 ## Requirements
 
