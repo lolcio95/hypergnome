@@ -38,8 +38,33 @@ export function switchToWorkspace(workspaceManager, index, dynamic, time = 0) {
     }
 }
 
-export function moveActiveToWorkspace(_workspaceManager, _focusedWindow, _index, _dynamic, _time) {
-    // Not yet implemented
+/**
+ * Move the focused window to the given workspace and follow it there.
+ *
+ * @param {object} workspaceManager - Meta.WorkspaceManager (or mock)
+ * @param {object|null} focusedWindow - Meta.Window or null
+ * @param {number} index - 0-based target workspace
+ * @param {boolean} dynamic - whether dynamic-workspaces is enabled
+ * @param {number} [time] - Clutter event time
+ */
+export function moveActiveToWorkspace(workspaceManager, focusedWindow, index, dynamic, time = 0) {
+    if (!focusedWindow) return;
+    if (index < 0) return;
+    const n = workspaceManager.get_n_workspaces();
+    if (index >= n) {
+        if (!dynamic) return;
+        // Append placeholders until index exists, without activating intermediates.
+        let current = n;
+        while (current < index) {
+            workspaceManager.append_new_workspace(false, time);
+            current += 1;
+        }
+        // Final workspace at exactly `index`.
+        workspaceManager.append_new_workspace(false, time);
+    }
+    focusedWindow.change_workspace_by_index(index, false);
+    const ws = workspaceManager.get_workspace_by_index(index);
+    if (ws) ws.activate(time);
 }
 
 export function cycleWorkspace(_workspaceManager, _direction, _time) {

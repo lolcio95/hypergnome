@@ -82,3 +82,44 @@ describe('switchToWorkspace', () => {
         assert.deepEqual(wm._activated, []);
     });
 });
+
+function mockWindow() {
+    const moves = [];
+    return {
+        _moves: moves,
+        change_workspace_by_index: (index, append) => moves.push({index, append}),
+    };
+}
+
+describe('moveActiveToWorkspace', () => {
+    it('moves window to existing workspace and activates it', () => {
+        const wm = mockWsManager({nWorkspaces: 4, activeIndex: 0, dynamic: false});
+        const win = mockWindow();
+        moveActiveToWorkspace(wm, win, 2, /*dynamic=*/false);
+        assert.deepEqual(win._moves, [{index: 2, append: false}]);
+        assert.deepEqual(wm._activated, [2]);
+    });
+
+    it('no-op when window is null', () => {
+        const wm = mockWsManager({nWorkspaces: 4, activeIndex: 0, dynamic: false});
+        moveActiveToWorkspace(wm, null, 2, /*dynamic=*/false);
+        assert.deepEqual(wm._activated, []);
+    });
+
+    it('no-op when target out of range in fixed mode', () => {
+        const wm = mockWsManager({nWorkspaces: 2, activeIndex: 0, dynamic: false});
+        const win = mockWindow();
+        moveActiveToWorkspace(wm, win, 7, /*dynamic=*/false);
+        assert.deepEqual(win._moves, []);
+        assert.deepEqual(wm._activated, []);
+    });
+
+    it('appends in dynamic mode then moves and activates', () => {
+        const wm = mockWsManager({nWorkspaces: 2, activeIndex: 0, dynamic: true});
+        const win = mockWindow();
+        moveActiveToWorkspace(wm, win, 4, /*dynamic=*/true);
+        assert.deepEqual(wm._appended, [2, 3, 4]);
+        assert.deepEqual(win._moves, [{index: 4, append: false}]);
+        assert.ok(wm._activated.includes(4));
+    });
+});
