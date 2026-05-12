@@ -25,3 +25,6 @@ node_modules/
 # Test VM artifacts (ISOs, disk images)
 test-vm/iso/
 test-vm/disks/
+
+# Local development docs (kept locally, not shipped)
+docs/
