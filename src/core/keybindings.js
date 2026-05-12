@@ -57,10 +57,10 @@ export class KeybindingManager {
 
         // -- Custom keybindings (workspaces, Hyprland-style) --
         const wm = global.workspace_manager;
+        const mutterSettings = new Gio.Settings({schema_id: 'org.gnome.mutter'});
         const isDynamic = () => {
             try {
-                const mutter = new Gio.Settings({schema_id: 'org.gnome.mutter'});
-                return mutter.get_boolean('dynamic-workspaces');
+                return mutterSettings.get_boolean('dynamic-workspaces');
             } catch (_e) {
                 return true;
             }
