@@ -23,6 +23,7 @@ export class KeybindingManager {
         this._settingsChangedId = 0;
         this._overrideEnabled = false;
         this._mutterSettings = new Gio.Settings({schema_id: 'org.gnome.mutter'});
+        this._shellKeybindingsSettings = new Gio.Settings({schema_id: 'org.gnome.shell.keybindings'});
     }
 
     enable() {
@@ -61,9 +62,12 @@ export class KeybindingManager {
         }
         this._overriddenBindings = [];
 
+        this._restoreAppAccelerators();
+
         this._settings = null;
         this._tilingManager = null;
         this._mutterSettings = null;
+        this._shellKeybindingsSettings = null;
     }
 
     _registerCustomBindings() {
@@ -166,11 +170,55 @@ export class KeybindingManager {
         });
 
         // Super+1..9 is GNOME's switch-to-application-N — conflicts with our
-        // tile-workspace-N bindings. Suppress with a no-op handler.
+        // tile-workspace-N bindings. Setting a no-op handler does not free the
+        // accelerator (Mutter still grabs Super+N for it), so we clear the
+        // accelerator and stash the original for restoration on disable.
+        this._clearAppAccelerators();
+    }
+
+    /**
+     * Clear GNOME's switch-to-application-1..9 accelerators so Super+1..9
+     * reaches our tile-workspace-N bindings. Saves originals to our own
+     * GSettings stash for crash-safe restoration.
+     */
+    _clearAppAccelerators() {
         for (let i = 1; i <= 9; i++) {
-            this._overrideBinding(`switch-to-application-${i}`, () => {
-                // Swallowed — our tile-workspace-N handles Super+N
-            });
+            try {
+                const stashKey = `stashed-switch-to-application-${i}`;
+                const systemKey = `switch-to-application-${i}`;
+                const stashed = this._settings.get_strv(stashKey);
+                if (stashed.length === 0) {
+                    // First time clearing — save the user's current value.
+                    const current = this._shellKeybindingsSettings.get_strv(systemKey);
+                    if (current.length > 0)
+                        this._settings.set_strv(stashKey, current);
+                }
+                this._shellKeybindingsSettings.set_strv(systemKey, []);
+            } catch (e) {
+                logError(e, `HyperGnome: failed to clear switch-to-application-${i}`);
+            }
+        }
+    }
+
+    /**
+     * Restore GNOME's switch-to-application-1..9 accelerators from our stash.
+     * Safe to call repeatedly: empty stash entries are skipped.
+     */
+    _restoreAppAccelerators() {
+        if (!this._settings || !this._shellKeybindingsSettings)
+            return;
+        for (let i = 1; i <= 9; i++) {
+            try {
+                const stashKey = `stashed-switch-to-application-${i}`;
+                const systemKey = `switch-to-application-${i}`;
+                const stashed = this._settings.get_strv(stashKey);
+                if (stashed.length > 0) {
+                    this._shellKeybindingsSettings.set_strv(systemKey, stashed);
+                    this._settings.set_strv(stashKey, []);
+                }
+            } catch (e) {
+                logError(e, `HyperGnome: failed to restore switch-to-application-${i}`);
+            }
         }
     }
 
@@ -197,6 +245,11 @@ export class KeybindingManager {
             try { Meta.keybindings_set_custom_handler(name, null); } catch (_e) { /* Already restored */ }
         }
         this._overriddenBindings = [];
+
+        // Restore the user's switch-to-application accelerators. If the new
+        // state is "override on", _installGnomeOverrides will re-stash and
+        // re-clear them. If "off", they stay restored.
+        this._restoreAppAccelerators();
 
         this._overrideEnabled = this._settings.get_boolean('override-gnome-shortcuts');
         this._registerCustomBindings();
