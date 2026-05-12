@@ -1,6 +1,9 @@
+import Gio from 'gi://Gio';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+import * as WorkspaceActions from './workspaceActions.js';
 
 /**
  * Manages all HyperGnome keybindings:
@@ -17,9 +20,57 @@ export class KeybindingManager {
         this._tilingManager = tilingManager;
         this._customBindings = [];
         this._overriddenBindings = [];
+        this._settingsChangedId = 0;
+        this._overrideEnabled = false;
+        this._mutterSettings = new Gio.Settings({schema_id: 'org.gnome.mutter'});
+        this._shellKeybindingsSettings = new Gio.Settings({schema_id: 'org.gnome.shell.keybindings'});
     }
 
     enable() {
+        this._overrideEnabled = this._settings.get_boolean('override-gnome-shortcuts');
+
+        this._registerCustomBindings();
+        if (this._overrideEnabled) {
+            this._installGnomeOverrides();
+        }
+        this._connectToggleListener();
+    }
+
+    disable() {
+        if (this._settingsChangedId && this._settings) {
+            try {
+                this._settings.disconnect(this._settingsChangedId);
+            } catch (_e) {}
+            this._settingsChangedId = 0;
+        }
+
+        for (const name of this._customBindings) {
+            try {
+                Main.wm.removeKeybinding(name);
+            } catch (_e) {
+                // Already removed
+            }
+        }
+        this._customBindings = [];
+
+        for (const name of this._overriddenBindings) {
+            try {
+                Meta.keybindings_set_custom_handler(name, null);
+            } catch (_e) {
+                // Already restored
+            }
+        }
+        this._overriddenBindings = [];
+
+        this._restoreAppAccelerators();
+
+        this._settings = null;
+        this._tilingManager = null;
+        this._mutterSettings = null;
+        this._shellKeybindingsSettings = null;
+    }
+
+    _registerCustomBindings() {
         // -- Custom keybindings (vim-style focus) --
         this._addBinding('tile-focus-left', () => this._tilingManager.focusDirection('left'));
         this._addBinding('tile-focus-down', () => this._tilingManager.focusDirection('down'));
@@ -52,6 +103,36 @@ export class KeybindingManager {
         this._addBinding('tile-resize-up', () => this._tilingManager.resizeDirection('up'));
         this._addBinding('tile-resize-right', () => this._tilingManager.resizeDirection('right'));
 
+        // -- Custom keybindings (workspaces, Hyprland-style) --
+        const wm = global.workspace_manager;
+        const mutterSettings = this._mutterSettings;
+        const isDynamic = () => {
+            try {
+                return mutterSettings.get_boolean('dynamic-workspaces');
+            } catch (_e) {
+                return true;
+            }
+        };
+        const now = () => global.get_current_time();
+
+        for (let i = 1; i <= 10; i++) {
+            const target = i - 1;
+            this._addBinding(`tile-workspace-${i}`,
+                () => WorkspaceActions.switchToWorkspace(wm, target, isDynamic(), now()));
+            this._addBinding(`tile-move-to-workspace-${i}`,
+                () => this._tilingManager.moveActiveToWorkspace(target, isDynamic()));
+        }
+        this._addBinding('tile-workspace-prev',
+            () => WorkspaceActions.cycleWorkspace(wm, -1, now()));
+        this._addBinding('tile-workspace-next',
+            () => WorkspaceActions.cycleWorkspace(wm, +1, now()));
+        this._addBinding('tile-move-workspace-prev',
+            () => this._tilingManager.moveActiveAndCycle(-1));
+        this._addBinding('tile-move-workspace-next',
+            () => this._tilingManager.moveActiveAndCycle(+1));
+    }
+
+    _installGnomeOverrides() {
         // -- Override conflicting GNOME keybindings --
 
         // Super+H is GNOME minimize — conflicts with our focus-left
@@ -63,7 +144,6 @@ export class KeybindingManager {
         this._overrideBinding('toggle-tiled-left', () => {
             this._tilingManager.focusDirection('left');
         });
-
         this._overrideBinding('toggle-tiled-right', () => {
             this._tilingManager.focusDirection('right');
         });
@@ -88,29 +168,94 @@ export class KeybindingManager {
         this._overrideBinding('move-to-monitor-down', () => {
             this._tilingManager.moveDirection('down');
         });
+
+        // Super+1..9 is GNOME's switch-to-application-N — conflicts with our
+        // tile-workspace-N bindings. Setting a no-op handler does not free the
+        // accelerator (Mutter still grabs Super+N for it), so we clear the
+        // accelerator and stash the original for restoration on disable.
+        this._clearAppAccelerators();
     }
 
-    disable() {
-        for (const name of this._customBindings) {
+    /**
+     * Clear GNOME's switch-to-application-1..9 accelerators so Super+1..9
+     * reaches our tile-workspace-N bindings. Saves originals to our own
+     * GSettings stash for crash-safe restoration.
+     */
+    _clearAppAccelerators() {
+        for (let i = 1; i <= 9; i++) {
             try {
-                Main.wm.removeKeybinding(name);
-            } catch (_e) {
-                // Already removed
+                const stashKey = `stashed-switch-to-application-${i}`;
+                const systemKey = `switch-to-application-${i}`;
+                const stashed = this._settings.get_strv(stashKey);
+                if (stashed.length === 0) {
+                    // First time clearing — save the user's current value.
+                    const current = this._shellKeybindingsSettings.get_strv(systemKey);
+                    if (current.length > 0)
+                        this._settings.set_strv(stashKey, current);
+                }
+                this._shellKeybindingsSettings.set_strv(systemKey, []);
+            } catch (e) {
+                logError(e, `HyperGnome: failed to clear switch-to-application-${i}`);
             }
+        }
+    }
+
+    /**
+     * Restore GNOME's switch-to-application-1..9 accelerators from our stash.
+     * Safe to call repeatedly: empty stash entries are skipped.
+     */
+    _restoreAppAccelerators() {
+        if (!this._settings || !this._shellKeybindingsSettings)
+            return;
+        for (let i = 1; i <= 9; i++) {
+            try {
+                const stashKey = `stashed-switch-to-application-${i}`;
+                const systemKey = `switch-to-application-${i}`;
+                const stashed = this._settings.get_strv(stashKey);
+                if (stashed.length > 0) {
+                    this._shellKeybindingsSettings.set_strv(systemKey, stashed);
+                    this._settings.set_strv(stashKey, []);
+                }
+            } catch (e) {
+                logError(e, `HyperGnome: failed to restore switch-to-application-${i}`);
+            }
+        }
+    }
+
+    _connectToggleListener() {
+        this._settingsChangedId = this._settings.connect(
+            'changed::override-gnome-shortcuts',
+            () => {
+                try {
+                    this._reloadBindings();
+                } catch (e) {
+                    logError(e, 'HyperGnome: failed to reload bindings on toggle change');
+                }
+            });
+    }
+
+    _reloadBindings() {
+        // Tear down all keybindings except the settings listener, then rebuild.
+        for (const name of this._customBindings) {
+            try { Main.wm.removeKeybinding(name); } catch (_e) { /* Already removed */ }
         }
         this._customBindings = [];
 
         for (const name of this._overriddenBindings) {
-            try {
-                Meta.keybindings_set_custom_handler(name, null);
-            } catch (_e) {
-                // Already restored
-            }
+            try { Meta.keybindings_set_custom_handler(name, null); } catch (_e) { /* Already restored */ }
         }
         this._overriddenBindings = [];
 
-        this._settings = null;
-        this._tilingManager = null;
+        // Restore the user's switch-to-application accelerators. If the new
+        // state is "override on", _installGnomeOverrides will re-stash and
+        // re-clear them. If "off", they stay restored.
+        this._restoreAppAccelerators();
+
+        this._overrideEnabled = this._settings.get_boolean('override-gnome-shortcuts');
+        this._registerCustomBindings();
+        if (this._overrideEnabled) {
+            this._installGnomeOverrides();
+        }
     }
 
     /**

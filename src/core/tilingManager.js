@@ -431,6 +431,112 @@ export class TilingManager {
             this._applyLayout(ws.index(), focused.get_monitor());
     }
 
+    /**
+     * Move the focused window to the workspace at the given 0-based index.
+     * Handles tree removal from source, insertion into destination, workspace
+     * change, and activation of the target. Mirrors moveWindowToMonitor for
+     * cross-workspace moves.
+     *
+     * @param {number} index - 0-based target workspace
+     * @param {boolean} dynamic - whether dynamic-workspaces is enabled
+     */
+    moveActiveToWorkspace(index, dynamic) {
+        if (!this._isTilingActive())
+            return;
+        if (index < 0)
+            return;
+
+        const focused = global.display.get_focus_window();
+        if (!focused)
+            return;
+
+        const wsManager = global.workspace_manager;
+        const sourceWs = focused.get_workspace();
+        if (!sourceWs)
+            return;
+        const sourceWsIndex = sourceWs.index();
+        if (sourceWsIndex === index)
+            return;
+
+        const monIndex = focused.get_monitor();
+        const n = wsManager.get_n_workspaces();
+        const time = global.get_current_time();
+
+        // Ensure target workspace exists (dynamic mode auto-extends).
+        if (index >= n) {
+            if (!dynamic)
+                return;
+            let current = n;
+            while (current <= index) {
+                wsManager.append_new_workspace(false, time);
+                current += 1;
+            }
+        }
+
+        // Remove from source tree (layout-aware).
+        const sourceTree = this._findTreeContaining(focused);
+        if (sourceTree)
+            this._treeRemove(sourceTree, focused);
+        delete focused._hypergnomeTiledRect;
+        delete focused._hypergnomePreTileRect;
+
+        // Insert into destination tree if the window should still be tiled.
+        if (!this._floatingWindows.has(focused)) {
+            const floatList = this._settings.get_strv('float-list');
+            if (shouldTile(focused, floatList)) {
+                const targetWs = wsManager.get_workspace_by_index(index);
+                if (targetWs) {
+                    const destTree = this._getTree(index, monIndex);
+                    const workArea = targetWs.get_work_area_for_monitor(monIndex);
+                    const defaultRatio = this._settings.get_double('split-ratio');
+
+                    let nodeRect = workArea;
+                    const lastLeaf = destTree.findLastLeaf();
+                    if (lastLeaf)
+                        nodeRect = computeNodeRect(lastLeaf, workArea);
+
+                    this._treeInsert(destTree, focused, null, defaultRatio, nodeRect);
+                }
+            }
+        }
+
+        // Move the window (guarded so _onWindowWorkspaceChanged doesn't redo
+        // the tree work — mirrors moveWindowToMonitor's setMovingWindow).
+        this._movingWindow = focused;
+        focused.change_workspace_by_index(index, false);
+        this._movingWindow = null;
+
+        // Activate the target workspace.
+        const targetWs = wsManager.get_workspace_by_index(index);
+        if (targetWs)
+            targetWs.activate(time);
+
+        // Re-layout both workspaces.
+        this._applyLayout(sourceWsIndex, monIndex);
+        this._applyLayout(index, monIndex);
+    }
+
+    /**
+     * Move the focused window to the previous or next workspace and follow.
+     * Clamps at workspace boundaries (no wrap, no append). For dynamic-mode
+     * creation behaviour use moveActiveToWorkspace instead.
+     *
+     * @param {number} direction - +1 (next) or -1 (prev)
+     */
+    moveActiveAndCycle(direction) {
+        if (!this._isTilingActive())
+            return;
+        const wsManager = global.workspace_manager;
+        const current = wsManager.get_active_workspace_index();
+        const target = current + direction;
+        if (target < 0)
+            return;
+        if (target >= wsManager.get_n_workspaces())
+            return;
+        // Cycle never creates workspaces, so pass dynamic=false.
+        this.moveActiveToWorkspace(target, false);
+    }
+
     // =========================================================================
     // Signal handlers
     // =========================================================================
