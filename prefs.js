@@ -520,6 +520,30 @@ export default class HyperGnomePreferences extends ExtensionPreferences {
                 replacement: 'Replaced by Focus Down',
             },
             {
+                gnomeName: 'move-to-monitor-left',
+                gnomeLabel: 'Move Window to Monitor on Left',
+                schema: 'org.gnome.desktop.wm.keybindings',
+                replacement: 'Replaced by Move Left',
+            },
+            {
+                gnomeName: 'move-to-monitor-right',
+                gnomeLabel: 'Move Window to Monitor on Right',
+                schema: 'org.gnome.desktop.wm.keybindings',
+                replacement: 'Replaced by Move Right',
+            },
+            {
+                gnomeName: 'move-to-monitor-up',
+                gnomeLabel: 'Move Window to Monitor Above',
+                schema: 'org.gnome.desktop.wm.keybindings',
+                replacement: 'Replaced by Move Up',
+            },
+            {
+                gnomeName: 'move-to-monitor-down',
+                gnomeLabel: 'Move Window to Monitor Below',
+                schema: 'org.gnome.desktop.wm.keybindings',
+                replacement: 'Replaced by Move Down',
+            },
+            {
                 gnomeName: 'switch-to-application-1',
                 gnomeLabel: 'Activate Favourite App 1',
                 schema: 'org.gnome.shell.keybindings',
