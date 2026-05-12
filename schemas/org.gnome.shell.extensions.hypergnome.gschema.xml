@@ -148,6 +148,13 @@
       <description>List of WM_CLASS values that should always float</description>
     </key>
 
+    <!-- GNOME overrides -->
+    <key name="override-gnome-shortcuts" type="b">
+      <default>true</default>
+      <summary>Override conflicting GNOME shortcuts</summary>
+      <description>When enabled, HyperGnome takes over GNOME shortcuts that conflict with its defaults (e.g. Super+H, Super+1-9). Required for default HyperGnome bindings to work. Turn off if you prefer to use GNOME's native shortcuts and rebind HyperGnome's manually.</description>
+    </key>
+
     <!-- Keybindings: Focus -->
     <key name="tile-focus-left" type="as">
       <default><![CDATA[['<Super>h', '<Super>Left']]]></default>
