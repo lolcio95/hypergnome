@@ -430,6 +430,16 @@ export class BorderManager {
      * stay hidden and the subsequent notify::focus-window restores us.
      */
     _onWorkspaceChanged() {
+        // Workspace-switching keybinds (Super+[ / Super+] / Super+N)
+        // armed the pulse the same way every other keybind does, but
+        // the workspace switch itself is the visual cue — a border
+        // pulse on top of it just looks like the outline floating
+        // detached from the window.  Disarm so the follow-up
+        // notify::focus-window doesn't pulse.  This runs before
+        // notify::focus-window in Mutter's emit order, so the
+        // disarm always lands first.
+        this._keybindPulseArmedAt = 0;
+
         if (!this._settings || !this._border)
             return;
 
