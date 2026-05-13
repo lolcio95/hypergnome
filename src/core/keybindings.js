@@ -14,10 +14,14 @@ export class KeybindingManager {
     /**
      * @param {Gio.Settings} settings
      * @param {import('./core/tilingManager.js').TilingManager} tilingManager
+     * @param {object} [borderManager] - optional, used to arm the focus
+     *   pulse before keybind handlers run (so click and other non-keybind
+     *   focus changes don't pulse).
      */
-    constructor(settings, tilingManager) {
+    constructor(settings, tilingManager, borderManager = null) {
         this._settings = settings;
         this._tilingManager = tilingManager;
+        this._borderManager = borderManager;
         this._customBindings = [];
         this._overriddenBindings = [];
         this._settingsChangedId = 0;
@@ -66,6 +70,7 @@ export class KeybindingManager {
 
         this._settings = null;
         this._tilingManager = null;
+        this._borderManager = null;
         this._mutterSettings = null;
         this._shellKeybindingsSettings = null;
     }
@@ -270,6 +275,13 @@ export class KeybindingManager {
             Meta.KeyBindingFlags.NONE,
             Shell.ActionMode.NORMAL,
             () => {
+                // Mark the upcoming focus change as keybind-driven so the
+                // active-border pulses.  Mutter consumes the KEY_PRESS
+                // event before it can be observed elsewhere, and clicks
+                // bypass Clutter entirely (Wayland routes them to the
+                // client), so the handler itself is the only reliable
+                // place to flag "this came from a keybind".
+                this._borderManager?.armKeybindPulse();
                 try {
                     handler();
                 } catch (e) {
@@ -287,6 +299,7 @@ export class KeybindingManager {
      */
     _overrideBinding(name, handler) {
         Meta.keybindings_set_custom_handler(name, () => {
+            this._borderManager?.armKeybindPulse();
             try {
                 handler();
             } catch (e) {

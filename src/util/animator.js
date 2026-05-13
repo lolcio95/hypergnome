@@ -22,10 +22,6 @@ import {blockWindowSignals} from './windowBlock.js';
 const DEFAULT_DURATION_MS = 200;
 const ANIM_MODE = Clutter.AnimationMode.EASE_OUT_QUAD;
 
-// Workspace-switch slide-in: shared so the border can match the window.
-export const SLIDE_OFFSET_PX = 60;
-export const SLIDE_DURATION_MULTIPLIER = 1.5;
-
 /**
  * Animate a window from its current position/size to a target rect.
  *
@@ -116,13 +112,25 @@ export function animateWindow(metaWindow, targetRect, durationMs) {
         duration,
         mode: ANIM_MODE,
         onStopped: () => {
-            // 5. Restore the real actor and destroy the clone
+            // 5. Restore the real actor and destroy the clone.
+            //
+            // Only reset properties that DON'T currently have a
+            // transition on them — otherwise we overwrite an in-flight
+            // workspace-switch slide-in (which eases translation_y,
+            // opacity and scale_{x,y}) at this clone's end-of-life, and
+            // the slide-in then snaps back to its interpolated value
+            // on the next frame, producing a visible one-frame pop.
             try {
-                actor.opacity = 255;
-                actor.scale_x = 1;
-                actor.scale_y = 1;
-                actor.translation_x = 0;
-                actor.translation_y = 0;
+                if (!actor.get_transition('opacity'))
+                    actor.opacity = 255;
+                if (!actor.get_transition('scale-x'))
+                    actor.scale_x = 1;
+                if (!actor.get_transition('scale-y'))
+                    actor.scale_y = 1;
+                if (!actor.get_transition('translation-x'))
+                    actor.translation_x = 0;
+                if (!actor.get_transition('translation-y'))
+                    actor.translation_y = 0;
             } catch (_e) {
                 // Actor may have been destroyed during animation
             }
@@ -191,42 +199,3 @@ export function snapWindow(metaWindow, targetRect) {
     );
 }
 
-/**
- * Animate a window sliding in from an offset (workspace switch effect).
- *
- * @param {Meta.Window} metaWindow
- * @param {number} offsetX - Horizontal slide offset in pixels
- * @param {number} offsetY - Vertical slide offset in pixels
- * @param {number} [durationMs] - Animation duration in ms (default 200).
- */
-export function animateSlideIn(metaWindow, offsetX, offsetY, durationMs) {
-    const actor = metaWindow.get_compositor_private();
-    if (!actor)
-        return;
-
-    const duration = Math.round(
-        (durationMs ?? DEFAULT_DURATION_MS) * SLIDE_DURATION_MULTIPLIER,
-    );
-
-    // remove_all_transitions cuts any in-flight focus pulse mid-ease,
-    // which would otherwise leave scale_x/scale_y stuck at ~1.02 for
-    // the duration of the slide-in (visible as the window being
-    // slightly larger than its border).  Snap scale to 1 and include
-    // it in the ease so the actor lands fully reset.
-    actor.remove_all_transitions();
-    actor.translation_x = offsetX;
-    actor.translation_y = offsetY;
-    actor.opacity = 0;
-    actor.scale_x = 1;
-    actor.scale_y = 1;
-
-    actor.ease({
-        translation_x: 0,
-        translation_y: 0,
-        opacity: 255,
-        scale_x: 1,
-        scale_y: 1,
-        duration,
-        mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-    });
-}

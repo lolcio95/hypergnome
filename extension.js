@@ -20,16 +20,18 @@ export default class HyperGnomeExtension extends Extension {
         this._createIndicator();
         this._connectSettings();
 
+        // Active window border (constructed before keybindings so the
+        // keybind handlers can arm its focus pulse).
+        this._borderManager = new BorderManager(this._settings);
+        this._borderManager.enable();
+
         // Tiling engine
         this._tilingManager = new TilingManager(this._settings);
-        this._keybindingManager = new KeybindingManager(this._settings, this._tilingManager);
+        this._keybindingManager = new KeybindingManager(
+            this._settings, this._tilingManager, this._borderManager);
 
         this._tilingManager.enable();
         this._keybindingManager.enable();
-
-        // Active window border
-        this._borderManager = new BorderManager(this._settings);
-        this._borderManager.enable();
 
         // Inactive window effects (dim)
         this._effectsManager = new EffectsManager(this._settings);

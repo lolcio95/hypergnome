@@ -17,7 +17,7 @@ import {moveWindowToMonitor, focusOnAdjacentMonitor} from '../util/monitorUtils.
 import {shouldTile} from '../util/windowFilters.js';
 import {unmaximizeWindow, isMaximized, isConstrained, isResizeGrab} from '../util/compat.js';
 import {SignalManager} from '../util/signalManager.js';
-import {animateWindow, snapWindow, animateSlideIn, SLIDE_OFFSET_PX} from '../util/animator.js';
+import {animateWindow, snapWindow} from '../util/animator.js';
 import {blockWindowSignals, isWindowBlocked, clearWindowBlock} from '../util/windowBlock.js';
 
 const DEBOUNCE_MS = 200;
@@ -614,24 +614,11 @@ export class TilingManager {
 
         this._relayoutActiveWorkspace();
 
-        // Slide-in animation for windows on the new workspace
-        if (this._settings.get_boolean('animation-enabled')) {
-            try {
-                const wsIndex = global.workspace_manager.get_active_workspace_index();
-                const nMonitors = global.display.get_n_monitors();
-                for (let i = 0; i < nMonitors; i++) {
-                    const tree = this._trees.get(`${wsIndex}:${i}`);
-                    if (!tree)
-                        continue;
-                    const dur = this._settings.get_int('animation-duration');
-                    for (const win of tree.getWindows()) {
-                        animateSlideIn(win, 0, SLIDE_OFFSET_PX, dur);
-                    }
-                }
-            } catch (_e) {
-                // Non-critical — slide animation failure shouldn't break tiling
-            }
-        }
+        // No per-window slide-in: GNOME's WorkspaceAnimation already
+        // handles the visual workspace transition.  Adding our own
+        // vertical translate-and-fade on top creates a one-frame blank
+        // between the cloned workspaces disappearing and the slide-in
+        // becoming visible, which the user perceives as a flicker.
     }
 
     _onWindowEnteredMonitor(metaWindow, monIndex) {
@@ -1045,7 +1032,7 @@ export class TilingManager {
                     };
 
                     // Clear any maximize/tile constraint (full, half, or quarter).
-                    // GNOME's native tiling sets MaximizeFlags that prevent
+                    // GNOME's native tiling sets constraint flags that prevent
                     // move_resize_frame from working correctly.
                     if (isConstrained(metaWindow)) {
                         blockWindowSignals(metaWindow);

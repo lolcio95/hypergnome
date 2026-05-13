@@ -20,22 +20,18 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {SignalManager} from '../util/signalManager.js';
-import {
-    animateBorder,
-    SLIDE_OFFSET_PX,
-    SLIDE_DURATION_MULTIPLIER,
-} from '../util/animator.js';
+import {animateBorder} from '../util/animator.js';
 import {parseColor} from '../util/colorParser.js';
 
 const PULSE_SCALE = 1.04;
 const PULSE_DURATION_MS = 150;
 const PULSE_SETTLE_MS = 200;
 
-// How long after a workspace switch or button press to suppress the focus
-// pulse.  Long enough to cover the slide-in (~300ms) and any
-// touchpad-swipe settling, short enough that the next deliberate keybind
-// focus change still pulses normally.
-const PULSE_SUPPRESS_US = 400_000; // 400ms in microseconds
+// Window of time after a keybind handler runs in which the next focus
+// change is treated as keybind-driven (and pulses).  Keybind handlers
+// call armKeybindPulse() synchronously before invoking; the resulting
+// focus change fires within microseconds, so 200ms is plenty of slack.
+const KEYBIND_PULSE_ARM_US = 200_000;
 
 export class BorderManager {
     /**
@@ -54,15 +50,13 @@ export class BorderManager {
         this._timeline = null;
         this._gradientAngle = 0;
 
-        // Pulse-suppression timestamps (monotonic microseconds).  The focus
-        // pulse is meant to highlight keybind-driven focus changes; for
-        // workspace switches and mouse clicks the pulse is distracting and
-        // visually detaches from the window (the actor is sliding or
-        // already in place, while the border bounces).  We track the most
-        // recent ws change and button press and skip the pulse if either
-        // is recent — see _shouldPulse().
-        this._lastWsChangeTime = 0;
-        this._lastButtonPressTime = 0;
+        // Pulse only on keybind-driven focus changes.  Mutter consumes
+        // keybind KEY_PRESS events before they reach Clutter's stage and
+        // app-window clicks bypass Clutter entirely (Wayland routes them
+        // straight to the client), so neither is observable via
+        // captured-event.  The only reliable signal is the keybind
+        // handler itself calling armKeybindPulse().
+        this._keybindPulseArmedAt = 0;
     }
 
     // =========================================================================
@@ -116,15 +110,6 @@ export class BorderManager {
             // Internal API moved — keep extension functional without
             // the touchpad-specific path.
         }
-
-        // Track button-press events to suppress the focus pulse when the
-        // user clicks a window to focus it.  captured-event sees every
-        // event before any actor consumes it.
-        this._signals.connect(global.stage, 'captured-event', (_actor, event) => {
-            if (event.type() === Clutter.EventType.BUTTON_PRESS)
-                this._lastButtonPressTime = GLib.get_monotonic_time();
-            return Clutter.EVENT_PROPAGATE;
-        });
 
         // Live-update on settings change
         this._signals.connect(this._settings, 'changed::active-border-size',
@@ -352,88 +337,55 @@ export class BorderManager {
 
         this._focusWindow = win;
 
-        // Cross-workspace focus change ⇒ a workspace switch is happening
-        // (or just happened).  On touchpad swipes Mutter's
-        // notify::focus-window can land before active-workspace-changed
-        // updates _lastWsChangeTime, so _shouldPulse would otherwise let
-        // a pulse fire — and the actor pulse's scale 1 → 1.04 ease, if
-        // cut short by TilingManager's animateSlideIn, leaves the
-        // focused window's actor at scale ~1.02 for the whole slide-in.
-        // Update the timestamp now so the same suppression that already
-        // works for keybind workspace switches also covers touchpad.
-        try {
-            const prevWsIdx = prevFocus?.get_workspace?.()?.index();
-            const newWsIdx = win.get_workspace()?.index();
-            if (prevWsIdx !== undefined && newWsIdx !== undefined &&
-                prevWsIdx !== newWsIdx)
-                this._lastWsChangeTime = GLib.get_monotonic_time();
-        } catch (_e) {
-            // get_workspace can throw on a destroyed window — fall back
-            // to relying on the active-workspace-changed timestamp.
-        }
-
         this._windowSignals.connect(win, 'position-changed',
             () => this._updateGeometryAnimated());
         this._windowSignals.connect(win, 'size-changed',
             () => this._updateGeometryAnimated());
 
-        // The active border must only be visible when the focused window is
-        // actually on the active workspace.  Two cases can briefly violate
-        // that during a workspace switch:
-        //
-        // 1. Keybind path (Mutter activate(): focus changes first, then the
-        //    active workspace updates).  Here we hide momentarily and the
-        //    synchronously-following _onWorkspaceChanged restores + slides
-        //    the border — same JS task = no paint between = no flicker.
-        //
-        // 2. Touchpad swipe (gesture commit can fire active-workspace-
-        //    changed before focus catches up).  Here focus may still point
-        //    at a window on a now-inactive workspace.  Hiding stops the
-        //    gradient outline from briefly appearing at the previously
-        //    focused window's screen coords on the new workspace.
+        // The active border is only valid when the focused window is on
+        // the active workspace.  Mutter's notify::focus-window can land
+        // momentarily while a workspace transition is still settling
+        // (new focus on the about-to-be-active workspace, but active_
+        // workspace still points at the previous one).  Hide and bail;
+        // _onWorkspaceChanged will re-show when the workspace update
+        // lands in the same JS task.
         if (!this._isFocusOnActiveWs()) {
             this._border.hide();
             return;
         }
 
-        // Snap geometry on focus switch
         this._updateGeometry();
         this._restack();
         this._border.show();
 
-        // If the focus event landed in the middle of a workspace-switch
-        // slide-in (TilingManager set actor.translation_y / opacity on the
-        // actor), mirror that onto the border instead of pulsing — the
-        // pulse's remove_all_transitions would fight the slide-in and the
-        // border would otherwise sit at the final position while the
-        // window catches up.
-        if (this._mirrorActorSlideIn(win))
-            return;
-
-        // Focus pulse effect — only for keybind-driven focus changes.
-        // _shouldPulse suppresses it for workspace switches and mouse
-        // clicks where the pulse just distracts.
+        // Pulse only when a keybind handler armed it (see armKeybindPulse).
+        // Mouse clicks bypass Clutter (Wayland routes them straight to the
+        // client) and Mutter consumes keybind KEY_PRESS events before
+        // captured-event sees them, so the keybind handler is the only
+        // reliable place to mark "this focus change is keybind-driven."
         if (this._shouldPulse())
             this._doPulse();
     }
 
     /**
-     * The pulse is meant to draw the eye when a keybind moves focus to a
-     * different window — where the user can't otherwise see where focus
-     * went.  For workspace switches and mouse clicks the user already
-     * knows: the workspace transition or click target tells them.  In
-     * both those cases the pulse just looks like the border bouncing
-     * detached from the window.
+     * Arm the focus pulse for the *next* focus change.  Called by
+     * KeybindingManager before invoking a keybind handler that may
+     * change focus.  The arm expires after KEYBIND_PULSE_ARM_US so a
+     * keybind that doesn't actually move focus doesn't leak a pulse
+     * onto a later click-driven focus change.
      */
+    armKeybindPulse() {
+        this._keybindPulseArmedAt = GLib.get_monotonic_time();
+    }
+
     _shouldPulse() {
         if (!this._settings.get_boolean('focus-pulse'))
             return false;
-        const now = GLib.get_monotonic_time();
-        if (now - this._lastWsChangeTime < PULSE_SUPPRESS_US)
-            return false;
-        if (now - this._lastButtonPressTime < PULSE_SUPPRESS_US)
-            return false;
-        return true;
+        const age = GLib.get_monotonic_time() - this._keybindPulseArmedAt;
+        // Consume the arm so a later non-keybind focus change doesn't
+        // also pulse (one keybind = at most one pulse).
+        this._keybindPulseArmedAt = 0;
+        return age < KEYBIND_PULSE_ARM_US;
     }
 
     /**
@@ -447,45 +399,6 @@ export class BorderManager {
     _onSwipeBegin() {
         if (this._border)
             this._border.hide();
-    }
-
-    /**
-     * If the focused window's actor is mid-slide-in (translation != 0 or
-     * opacity < 255), copy that transform onto the border and ease it back
-     * to identity.  Returns true if a mirror was applied.
-     */
-    _mirrorActorSlideIn(win) {
-        if (!this._border)
-            return false;
-        try {
-            const actor = win.get_compositor_private();
-            if (!actor)
-                return false;
-            const tx = actor.translation_x;
-            const ty = actor.translation_y;
-            const op = actor.opacity;
-            if (tx === 0 && ty === 0 && op === 255)
-                return false;
-
-            const dur = Math.round(
-                this._settings.get_int('animation-duration') *
-                    SLIDE_DURATION_MULTIPLIER,
-            );
-            this._border.remove_all_transitions();
-            this._border.translation_x = tx;
-            this._border.translation_y = ty;
-            this._border.opacity = op;
-            this._border.ease({
-                translation_x: 0,
-                translation_y: 0,
-                opacity: 255,
-                duration: dur,
-                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-            });
-            return true;
-        } catch (_e) {
-            return false;
-        }
     }
 
     /**
@@ -509,56 +422,25 @@ export class BorderManager {
     }
 
     /**
-     * Restore + slide the border alongside the windows on the newly active
-     * workspace.  This is the show side of the visibility invariant:
-     *
-     * - Keybind path: _onFocusChanged ran first and (because the active
-     *   workspace hadn't updated yet) hid the border.  In the same JS task
-     *   we re-show and slide it.
-     *
-     * - Touchpad path: focus may still point at the previous workspace's
-     *   window when this fires.  In that case we keep the border hidden
-     *   and let the eventual notify::focus-window restore it (mirroring
-     *   the in-flight actor slide-in).
+     * Restore the border on workspace change.  GNOME's WorkspaceAnimation
+     * already handles the visual transition (cloned workspaces sliding
+     * across); we just need to show the border at its canonical position
+     * once focus has landed on a window on the active workspace.  If
+     * focus hasn't transferred yet (touchpad gesture-commit path), we
+     * stay hidden and the subsequent notify::focus-window restores us.
      */
     _onWorkspaceChanged() {
         if (!this._settings || !this._border)
             return;
-
-        // Record the time so _shouldPulse can suppress the focus pulse
-        // during the window where a workspace-switch-induced focus change
-        // would otherwise fire it.
-        this._lastWsChangeTime = GLib.get_monotonic_time();
 
         if (!this._isFocusOnActiveWs()) {
             this._border.hide();
             return;
         }
 
-        // _updateGeometry resets position, scale, translation and opacity
-        // — important if a prior pulse or slide-in was cut short and left
-        // the border off-canonical (e.g. scale != 1), and necessary here
-        // because we may have just been hidden by _onFocusChanged.
         this._updateGeometry();
         this._restack();
         this._border.show();
-
-        if (!this._settings.get_boolean('animation-enabled'))
-            return;
-
-        const dur = Math.round(
-            this._settings.get_int('animation-duration') *
-                SLIDE_DURATION_MULTIPLIER,
-        );
-        this._border.translation_y = SLIDE_OFFSET_PX;
-        this._border.opacity = 0;
-        this._border.ease({
-            translation_x: 0,
-            translation_y: 0,
-            opacity: 255,
-            duration: dur,
-            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-        });
     }
 
     // =========================================================================
