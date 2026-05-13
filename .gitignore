@@ -28,3 +28,6 @@ test-vm/disks/
 
 # Local development docs (kept locally, not shipped)
 docs/
+
+# Shexli local linter venv
+.shexli-venv/
