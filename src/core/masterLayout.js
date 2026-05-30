@@ -270,6 +270,40 @@ export function swapWithMaster(tree, focusedWindow, orientation) {
 }
 
 /**
+ * Return every window in canonical master order: master first, then the
+ * stack top-to-bottom (left-to-right for TOP/BOTTOM). This is the inverse
+ * of rebuildShape's input order, so feeding the result straight back into
+ * rebuildShape is a no-op on a well-formed tree.
+ *
+ * Use this — NOT tree.getWindows() — when rebuilding a tree that may have
+ * been reordered (e.g. by swapWithMaster): tree.getWindows() returns Map
+ * insertion order, which does not track pointer swaps and would silently
+ * revert a swapped master/stack arrangement.
+ *
+ * @param {import('./tree.js').Tree} tree
+ * @param {string} orientation
+ * @returns {Array}
+ */
+export function getWindowsInOrder(tree, orientation) {
+    if (!tree.root)
+        return [];
+    if (tree.root.type === NodeType.LEAF)
+        return tree.root.window ? [tree.root.window] : [];
+
+    const result = [];
+    const masterLeaf = getMasterLeaf(tree, orientation);
+    if (masterLeaf && masterLeaf.window)
+        result.push(masterLeaf.window);
+
+    const stackChild = _stackChildOfRoot(tree, orientation);
+    for (const leaf of _stackLeavesInOrder(stackChild)) {
+        if (leaf.window)
+            result.push(leaf.window);
+    }
+    return result;
+}
+
+/**
  * Rebuild the tree from a flat ordered list of windows.
  * windows[0] becomes master; windows[1..] form the stack in order.
  * Used on layout mode / orientation change.

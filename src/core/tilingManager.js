@@ -103,9 +103,28 @@ export class TilingManager {
         this._signals.connect(this._settings, 'changed::master-factor',
             () => this._onMasterFactorChanged());
 
-        // Tile existing windows on the active workspace
-        if (this._settings.get_boolean('tiling-enabled'))
+        // Tile existing windows across all workspaces.
+        if (this._settings.get_boolean('tiling-enabled')) {
             this._tileExistingWindows();
+
+            // Re-scan once shortly after enable.  At cold shell startup the
+            // window list can still be incomplete when enable() runs (windows
+            // mid-map), which would otherwise leave them orphaned until they
+            // are re-created.  The scan is idempotent, so on the reload/toggle
+            // path (windows already present) this is a harmless no-op.
+            // Tracked in _deferredLayoutSources so disable() removes it.
+            const retryId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, () => {
+                this._deferredLayoutSources.delete(retryId);
+                try {
+                    if (this._isTilingActive())
+                        this._tileExistingWindows();
+                } catch (e) {
+                    logError(e, 'HyperGnome: deferred startup re-scan');
+                }
+                return GLib.SOURCE_REMOVE;
+            });
+            this._deferredLayoutSources.add(retryId);
+        }
     }
 
     disable() {
@@ -620,7 +639,18 @@ export class TilingManager {
         if (!this._isTilingActive())
             return;
 
-        this._relayoutActiveWorkspace();
+        // Adopt any not-yet-tracked windows on the now-active workspace
+        // (windows that existed before tiling was enabled, or that weren't
+        // enumerable when the initial scan ran) and lay it out.  This makes
+        // adoption self-healing: a window orphaned at startup gets tiled the
+        // moment its workspace becomes active.  _tileWorkspaceWindows is
+        // idempotent and applies the layout per monitor, so it subsumes the
+        // previous _relayoutActiveWorkspace() call.
+        const wsManager = global.workspace_manager;
+        const wsIndex = wsManager.get_active_workspace_index();
+        const ws = wsManager.get_active_workspace();
+        if (ws)
+            this._tileWorkspaceWindows(wsIndex, ws);
 
         // No per-window slide-in: GNOME's WorkspaceAnimation already
         // handles the visual workspace transition.  Adding our own
@@ -1319,11 +1349,42 @@ export class TilingManager {
     }
 
     /**
-     * Tile all existing windows on the active workspace.
+     * Tile all existing windows across EVERY workspace.
+     *
+     * Adoption of already-open windows happens only through this scan: the
+     * window-created path (_onWindowCreated) cannot catch windows that
+     * existed before its handler was connected, because they already fired
+     * window-created / first-frame.  Scanning every workspace — not just the
+     * active one — fixes windows parked on other workspaces being orphaned
+     * until re-created.
+     *
+     * Idempotent: windows already in a tree, floating, or failing shouldTile
+     * are skipped, so it is safe to call repeatedly (enable, monitor / layout
+     * / float-list change, deferred startup retry).
      */
     _tileExistingWindows() {
-        const wsIndex = global.workspace_manager.get_active_workspace_index();
-        const ws = global.workspace_manager.get_active_workspace();
+        const wsManager = global.workspace_manager;
+        const nWs = wsManager.get_n_workspaces();
+        for (let wsIndex = 0; wsIndex < nWs; wsIndex++) {
+            const ws = wsManager.get_workspace_by_index(wsIndex);
+            if (ws)
+                this._tileWorkspaceWindows(wsIndex, ws);
+        }
+    }
+
+    /**
+     * Adopt every untracked tileable window on one workspace into its
+     * per-monitor tree, then lay the workspace out.
+     *
+     * When there is nothing new to adopt this collapses to a plain
+     * relayout, so it is cheap and side-effect-free to call on every
+     * workspace switch (the `tileable.length > 0` guard prevents a master-
+     * mode shape rebuild from discarding the user's ratios).
+     *
+     * @param {number} wsIndex
+     * @param {Meta.Workspace} ws
+     */
+    _tileWorkspaceWindows(wsIndex, ws) {
         const nMonitors = global.display.get_n_monitors();
         const floatList = this._settings.get_strv('float-list');
 
@@ -1339,42 +1400,60 @@ export class TilingManager {
             const tileable = sorted.filter(w =>
                 !this._floatingWindows.has(w) && !tree.contains(w));
 
-            if (this._isMasterMode()) {
-                // Master mode: unmaximize all, build canonical shape from
-                // (already-tracked + newly-tileable) windows in stacking order.
-                for (const metaWindow of tileable) {
-                    if (isMaximized(metaWindow)) {
-                        blockWindowSignals(metaWindow);
-                        unmaximizeWindow(metaWindow);
+            // Only mutate the tree when there is something new to adopt.
+            // A bare relayout (e.g. on workspace switch with no new windows)
+            // must NOT rebuild the master shape or it would reset ratios.
+            if (tileable.length > 0) {
+                if (this._isMasterMode()) {
+                    // Master mode: unmaximize all, build canonical shape from
+                    // (already-tracked + newly-tileable) windows in stacking order.
+                    for (const metaWindow of tileable) {
+                        if (isMaximized(metaWindow)) {
+                            blockWindowSignals(metaWindow);
+                            unmaximizeWindow(metaWindow);
+                        }
                     }
-                }
-                const existing = tree.getWindows();
-                const allOrdered = [...existing, ...tileable];
-                MasterLayout.rebuildShape(
-                    tree, allOrdered,
-                    this._settings.get_string('master-orientation'),
-                    this._settings.get_double('master-factor'));
-                for (const metaWindow of tileable)
-                    this._connectWindowSignals(metaWindow);
-            } else {
-                // Dwindle mode: per-window insertion with last-inserted's
-                // node rect for proper split direction.
-                const defaultRatio = this._settings.get_double('split-ratio');
-                let lastInserted = null;
-                for (const metaWindow of tileable) {
-                    if (isMaximized(metaWindow)) {
-                        blockWindowSignals(metaWindow);
-                        unmaximizeWindow(metaWindow);
+                    // Use master order (not tree.getWindows() Map-insertion
+                    // order) so an earlier swapWithMaster isn't silently
+                    // reverted when we rebuild to adopt the new window.
+                    const orientation =
+                        this._settings.get_string('master-orientation');
+                    const existing =
+                        MasterLayout.getWindowsInOrder(tree, orientation);
+                    const allOrdered = [...existing, ...tileable];
+                    MasterLayout.rebuildShape(
+                        tree, allOrdered, orientation,
+                        this._settings.get_double('master-factor'));
+                    for (const metaWindow of tileable)
+                        this._connectWindowSignals(metaWindow);
+                } else {
+                    // Dwindle mode: per-window insertion with the previous
+                    // leaf's node rect for proper split direction.
+                    const defaultRatio = this._settings.get_double('split-ratio');
+                    let lastInserted = null;
+                    for (const metaWindow of tileable) {
+                        if (isMaximized(metaWindow)) {
+                            blockWindowSignals(metaWindow);
+                            unmaximizeWindow(metaWindow);
+                        }
+                        let nodeRect = workArea;
+                        if (lastInserted && tree.contains(lastInserted)) {
+                            const targetLeaf = tree.findLeaf(lastInserted);
+                            if (targetLeaf)
+                                nodeRect = computeNodeRect(targetLeaf, workArea);
+                        } else {
+                            // First new window adopted into an already-
+                            // populated tree: split the current last leaf so
+                            // it dwindles off the existing layout instead of
+                            // picking a split direction from the full work area.
+                            const lastLeaf = tree.findLastLeaf();
+                            if (lastLeaf)
+                                nodeRect = computeNodeRect(lastLeaf, workArea);
+                        }
+                        tree.insert(metaWindow, lastInserted, defaultRatio, nodeRect);
+                        this._connectWindowSignals(metaWindow);
+                        lastInserted = metaWindow;
                     }
-                    let nodeRect = workArea;
-                    if (lastInserted && tree.contains(lastInserted)) {
-                        const targetLeaf = tree.findLeaf(lastInserted);
-                        if (targetLeaf)
-                            nodeRect = computeNodeRect(targetLeaf, workArea);
-                    }
-                    tree.insert(metaWindow, lastInserted, defaultRatio, nodeRect);
-                    this._connectWindowSignals(metaWindow);
-                    lastInserted = metaWindow;
                 }
             }
 

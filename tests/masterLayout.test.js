@@ -5,7 +5,7 @@ import {Tree} from '../src/core/tree.js';
 import {
     Orientation, nextOrientation, getMaster, getMasterLeaf,
     insertMaster, rebalanceStack, removeMaster,
-    swapWithMaster, rebuildShape,
+    swapWithMaster, rebuildShape, getWindowsInOrder,
 } from '../src/core/masterLayout.js';
 
 const win = (id) => ({id, toString: () => `win-${id}`});
@@ -339,5 +339,56 @@ describe('rebuildShape', () => {
         // Master is now in childB; stack chain in childA
         assert.equal(tree.root.childB.window, wins[0]);
         assert.equal(tree.root.childA.childA.window, wins[1]);
+    });
+});
+
+describe('getWindowsInOrder', () => {
+    it('returns [] for an empty tree', () => {
+        assert.deepEqual(getWindowsInOrder(new Tree(), Orientation.LEFT), []);
+    });
+
+    it('returns the lone window for a single-leaf tree', () => {
+        const tree = new Tree();
+        const w = win('m');
+        insertMaster(tree, w, Orientation.LEFT, 0.55);
+        assert.deepEqual(getWindowsInOrder(tree, Orientation.LEFT), [w]);
+    });
+
+    it('returns master first, then stack top-to-bottom', () => {
+        const tree = new Tree();
+        const wins = [win('m'), win('s0'), win('s1')];
+        rebuildShape(tree, wins, Orientation.LEFT, 0.55);
+        assert.deepEqual(getWindowsInOrder(tree, Orientation.LEFT), wins);
+    });
+
+    it('reflects a swapWithMaster (unlike tree.getWindows insertion order)', () => {
+        const tree = new Tree();
+        const [m, s0, s1] = [win('m'), win('s0'), win('s1')];
+        rebuildShape(tree, [m, s0, s1], Orientation.LEFT, 0.55);
+
+        swapWithMaster(tree, s1, Orientation.LEFT); // promote s1 to master
+
+        // tree.getWindows() still reports Map-insertion order...
+        assert.deepEqual(tree.getWindows(), [m, s0, s1]);
+        // ...but getWindowsInOrder reports the live master first.
+        assert.equal(getWindowsInOrder(tree, Orientation.LEFT)[0], s1);
+        assert.equal(getMaster(tree, Orientation.LEFT), s1);
+    });
+
+    it('round-trips through rebuildShape without reverting a swap (B1 regression)', () => {
+        const tree = new Tree();
+        const [m, s0, s1] = [win('m'), win('s0'), win('s1')];
+        rebuildShape(tree, [m, s0, s1], Orientation.LEFT, 0.55);
+        swapWithMaster(tree, s1, Orientation.LEFT); // s1 is now master
+
+        // Simulate adopting a new window the way _tileWorkspaceWindows does:
+        // rebuild from getWindowsInOrder + the newcomer.
+        const newcomer = win('new');
+        const ordered = [...getWindowsInOrder(tree, Orientation.LEFT), newcomer];
+        rebuildShape(tree, ordered, Orientation.LEFT, 0.55);
+
+        // The swapped master (s1) must survive the rebuild.
+        assert.equal(getMaster(tree, Orientation.LEFT), s1);
+        assert.ok(tree.contains(newcomer));
     });
 });
