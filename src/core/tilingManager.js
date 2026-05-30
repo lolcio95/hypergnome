@@ -79,6 +79,14 @@ export class TilingManager {
         this._signals.connect(display, 'workareas-changed',
             () => this._queueRelayout());
 
+        // Focus changes — safety net for windows that ended up constrained
+        // (maximized / half-tiled) without firing a signal we caught, e.g.
+        // Chromium-based browsers that re-maximize themselves inside our
+        // 300ms block window.  When the user clicks back on such a window,
+        // we re-tile it.
+        this._signals.connect(display, 'notify::focus-window',
+            () => this._onFocusWindowChanged());
+
         // Settings changes that affect layout
         this._signals.connect(this._settings, 'changed::inner-gap',
             () => this._queueRelayout());
@@ -885,6 +893,80 @@ export class TilingManager {
         });
     }
 
+    /**
+     * Per-window notify::maximized-{horizontally,vertically} handler.
+     *
+     * Fires when an app self-maximizes (titlebar drag-to-top, double-click,
+     * Super+Up, or internal app action — common with Chromium/Vivaldi).
+     * Without this listener the window would sit maximized over its tile
+     * until something else triggered a relayout.
+     *
+     * Re-entrancy defence is shared with _onWindowGeometryChanged: bail on
+     * the block flag (set around our own unmaximize), route through the
+     * 200ms leading-edge debounce, and skip when not currently constrained
+     * (the un-maximize half of the toggle is already covered by
+     * size-changed -> _onWindowGeometryChanged).
+     */
+    _onWindowMaximizedChanged(metaWindow) {
+        if (isWindowBlocked(metaWindow))
+            return;
+        if (!this._isTilingActive())
+            return;
+        if (this._floatingWindows.has(metaWindow))
+            return;
+        if (!this._findTreeContaining(metaWindow))
+            return;
+        if (!isConstrained(metaWindow))
+            return;
+        if (metaWindow.minimized || metaWindow.is_fullscreen())
+            return;
+
+        const ws = metaWindow.get_workspace();
+        if (!ws)
+            return;
+
+        this._queueRelayout({
+            wsIndex: ws.index(),
+            monIndex: metaWindow.get_monitor(),
+        });
+    }
+
+    /**
+     * Display notify::focus-window handler — safety net for any tiled
+     * window that ended up constrained without us catching the signal
+     * (e.g. Chromium re-maximize firing inside our 300ms block window).
+     * Clicking back on the window re-tiles it.
+     *
+     * Cheap by design: only queues a relayout when the focused window is
+     * (a) tracked in some tree and (b) currently constrained.  Otherwise
+     * focus changes are a no-op.
+     */
+    _onFocusWindowChanged() {
+        if (!this._isTilingActive())
+            return;
+
+        const focused = global.display.get_focus_window();
+        if (!focused)
+            return;
+        if (this._floatingWindows.has(focused))
+            return;
+        if (!this._findTreeContaining(focused))
+            return;
+        if (focused.minimized || focused.is_fullscreen())
+            return;
+        if (!isConstrained(focused))
+            return;
+
+        const ws = focused.get_workspace();
+        if (!ws)
+            return;
+
+        this._queueRelayout({
+            wsIndex: ws.index(),
+            monIndex: focused.get_monitor(),
+        });
+    }
+
     _onWindowFullscreenChanged(metaWindow) {
         // Keep the window in the tree across fullscreen transitions so its
         // tree position (and the surrounding layout) is preserved exactly.
@@ -1548,13 +1630,21 @@ export class TilingManager {
         mgr.connect(metaWindow, 'position-changed',
             wrap('position-changed', () => this._onWindowGeometryChanged(metaWindow)));
 
-        // NOTE: Do NOT listen to notify::maximized-horizontally /
-        // notify::maximized-vertically.  Calling unmaximizeWindow() from
-        // such a handler creates a feedback loop with apps that re-maximize
-        // themselves (Vivaldi/Chromium do this aggressively), which crashed
-        // gnome-shell during testing.  _applyLayout already unmaximizes
-        // constrained windows whenever it runs, so any subsequent relayout
-        // (focus change, workspace change, etc.) restores the tile.
+        // notify::maximized-* catches self-maximize from apps that don't
+        // route through user-driven move/resize (titlebar double-click,
+        // Super+Up, drag-to-top, or internal browser actions — Vivaldi /
+        // Chromium are the common offenders).  Re-entrancy with our own
+        // unmaximize() is prevented by:
+        //   1. _inLayout recursion guard inside _applyLayout
+        //   2. blockWindowSignals() (300ms) set immediately before our
+        //      unmaximize call — the handler bails via isWindowBlocked
+        //   3. The handler routes through _queueRelayout (200ms leading-
+        //      edge debounce), NEVER calls _applyLayout synchronously.
+        // This is the PaperWM #73 / Pop Shell Tags.Blocked pattern.
+        mgr.connect(metaWindow, 'notify::maximized-horizontally',
+            wrap('maximized-h', () => this._onWindowMaximizedChanged(metaWindow)));
+        mgr.connect(metaWindow, 'notify::maximized-vertically',
+            wrap('maximized-v', () => this._onWindowMaximizedChanged(metaWindow)));
 
         this._windowSignals.set(metaWindow, mgr);
     }
