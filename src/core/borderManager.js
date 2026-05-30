@@ -487,43 +487,16 @@ export class BorderManager {
             },
         });
 
-        // Pulse the window actor too
-        this._pulseWindowActor();
-    }
-
-    _pulseWindowActor() {
-        if (!this._focusWindow)
-            return;
-
-        const actor = this._focusWindow.get_compositor_private();
-        if (!actor)
-            return;
-
-        try {
-            actor.set_pivot_point(0.5, 0.5);
-            actor.remove_all_transitions();
-
-            actor.ease({
-                scale_x: PULSE_SCALE,
-                scale_y: PULSE_SCALE,
-                duration: PULSE_DURATION_MS,
-                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                onComplete: () => {
-                    try {
-                        actor.ease({
-                            scale_x: 1.0,
-                            scale_y: 1.0,
-                            duration: PULSE_SETTLE_MS,
-                            mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
-                        });
-                    } catch (_e) {
-                        // Actor may be destroyed
-                    }
-                },
-            });
-        } catch (_e) {
-            // Window may have been destroyed
-        }
+        // NOTE: We deliberately pulse ONLY the border actor, never the real
+        // window actor.  Scaling a live window actor is inherently jittery —
+        // Mutter re-composits the window's real content and re-syncs the
+        // actor's geometry every frame — and it collides with the tiling
+        // engine, which legitimately resets the actor's scale via
+        // animateWindow() / snapWindow() / the deferred snap pass.  The
+        // border is a dedicated overlay nothing else touches, so it pulses
+        // smoothly.  (Previously a _pulseWindowActor() here scaled the
+        // window itself; that caused the focus-pulse jitter and made other
+        // windows "pop" when a relayout reset their residual scale.)
     }
 
     // =========================================================================
