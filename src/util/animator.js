@@ -114,25 +114,41 @@ export function animateWindow(metaWindow, targetRect, durationMs) {
         onStopped: () => {
             // 5. Restore the real actor and destroy the clone.
             //
+            // If the window was closed mid-animation its actor is
+            // already disposed. Touching ANY property then makes GJS log
+            // an "already disposed" critical + full JS stack trace to the
+            // journal — and it does so at the C level BEFORE the JS throw,
+            // so a try/catch around the access cannot suppress the spam.
+            // Guard by asking the window (not the actor) whether it still
+            // owns this actor: get_compositor_private() returns null once
+            // the window is unmanaged, with no disposed-object access.
+            let live = false;
+            try {
+                live = metaWindow.get_compositor_private() === actor;
+            } catch (_e) {
+                live = false;
+            }
             // Only reset properties that DON'T currently have a
             // transition on them — otherwise we overwrite an in-flight
             // workspace-switch slide-in (which eases translation_y,
             // opacity and scale_{x,y}) at this clone's end-of-life, and
             // the slide-in then snaps back to its interpolated value
             // on the next frame, producing a visible one-frame pop.
-            try {
-                if (!actor.get_transition('opacity'))
-                    actor.opacity = 255;
-                if (!actor.get_transition('scale-x'))
-                    actor.scale_x = 1;
-                if (!actor.get_transition('scale-y'))
-                    actor.scale_y = 1;
-                if (!actor.get_transition('translation-x'))
-                    actor.translation_x = 0;
-                if (!actor.get_transition('translation-y'))
-                    actor.translation_y = 0;
-            } catch (_e) {
-                // Actor may have been destroyed during animation
+            if (live) {
+                try {
+                    if (!actor.get_transition('opacity'))
+                        actor.opacity = 255;
+                    if (!actor.get_transition('scale-x'))
+                        actor.scale_x = 1;
+                    if (!actor.get_transition('scale-y'))
+                        actor.scale_y = 1;
+                    if (!actor.get_transition('translation-x'))
+                        actor.translation_x = 0;
+                    if (!actor.get_transition('translation-y'))
+                        actor.translation_y = 0;
+                } catch (_e) {
+                    // Actor may have been destroyed during animation
+                }
             }
             try {
                 clone.destroy();

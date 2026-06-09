@@ -1121,7 +1121,11 @@ export class TilingManager {
         // the visual glitch.
         const activeWsIndex =
             global.workspace_manager.get_active_workspace_index();
-        const animate = wsIndex === activeWsIndex;
+        // Honour the animation-enabled setting: when off, tile via the
+        // instant snapWindow path (no Clutter.Clone / ease). Animations
+        // only ever ran for the active workspace anyway.
+        const animate = this._settings.get_boolean('animation-enabled') &&
+            wsIndex === activeWsIndex;
 
         this._inLayout = true;
         try {
