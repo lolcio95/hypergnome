@@ -182,6 +182,32 @@ export class TilingManager {
     // =========================================================================
 
     /**
+     * Return the tree containing the window, self-healing if the tree lost
+     * track of it.  After disposed-actor churn or a monitor change the
+     * window/tree state can desync (the window is tiled on screen but absent
+     * from any tree); without this, focus/move keybinds silently no-op and
+     * the user "can't move windows with Super+Shift+HJKL".  Re-inserting a
+     * tileable window restores tracking so the keybind works on first press.
+     * @param {Meta.Window} win
+     * @returns {object|null} the containing tree, or null if untileable
+     */
+    _ensureTracked(win) {
+        let tree = this._findTreeContaining(win);
+        if (tree)
+            return tree;
+
+        if (this._floatingWindows.has(win))
+            return null;
+
+        const floatList = this._settings.get_strv('float-list');
+        if (!shouldTile(win, floatList))
+            return null;
+
+        this._insertWindow(win);
+        return this._findTreeContaining(win);
+    }
+
+    /**
      * Move focus to the nearest window in a direction.
      * @param {string} direction - 'left'|'right'|'up'|'down'
      */
@@ -193,7 +219,7 @@ export class TilingManager {
         if (!focused)
             return;
 
-        const tree = this._findTreeContaining(focused);
+        const tree = this._ensureTracked(focused);
         if (!tree)
             return;
 
@@ -222,7 +248,7 @@ export class TilingManager {
         if (!focused)
             return;
 
-        const tree = this._findTreeContaining(focused);
+        const tree = this._ensureTracked(focused);
         if (!tree)
             return;
 
