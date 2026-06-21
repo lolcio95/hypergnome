@@ -1630,6 +1630,29 @@ export class TilingManager {
      * Build context object for cross-monitor utility functions.
      * @returns {object}
      */
+    /**
+     * Adopt any untracked tileable windows on a specific monitor into its
+     * per-monitor tree.  Mirrors the per-monitor loop in _tileWorkspaceWindows
+     * but scoped to one monitor so cross-monitor focus can self-heal the
+     * target monitor's tree before checking isEmpty().
+     * @param {number} wsIndex
+     * @param {number} monIndex
+     */
+    _adoptWindowsOnMonitor(wsIndex, monIndex) {
+        const ws = global.workspace_manager.get_workspace_by_index(wsIndex);
+        if (!ws)
+            return;
+        const floatList = this._settings.get_strv('float-list');
+        const tree = this._getTree(wsIndex, monIndex);
+        const untracked = ws.list_windows().filter(w =>
+            w.get_monitor() === monIndex &&
+            shouldTile(w, floatList) &&
+            !this._floatingWindows.has(w) &&
+            !tree.contains(w));
+        for (const w of untracked)
+            this._insertWindow(w);
+    }
+
     _monitorCtx() {
         return {
             findTreeContaining: (w) => this._findTreeContaining(w),
@@ -1640,6 +1663,7 @@ export class TilingManager {
             treeInsert: (tree, w, splitTarget, ratio, rect) =>
                 this._treeInsert(tree, w, splitTarget, ratio, rect),
             treeRemove: (tree, w) => this._treeRemove(tree, w),
+            adoptMonitor: (ws, mon) => this._adoptWindowsOnMonitor(ws, mon),
         };
     }
 
