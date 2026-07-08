@@ -198,6 +198,13 @@ export function animateBorder(border, frameRect, borderWidth, durationMs) {
  * @param {{x: number, y: number, width: number, height: number}} targetRect
  */
 export function snapWindow(metaWindow, targetRect) {
+    // GUARD (patch): move_frame/move_resize_frame na unmanaged/destroyed oknie
+    // segfaultuja na poziomie C (Mutter) -- JS try/catch w wywolujacym kodzie
+    // (tilingManager.js) tego NIE lapie. Stad crashe przy drag/toggle/always-on-top
+    // gdy okno znika w trakcie animacji korekcyjnej.
+    if (!metaWindow || !metaWindow.is_alive) {
+        return;
+    }
     const actor = metaWindow.get_compositor_private();
     if (actor) {
         actor.remove_all_transitions();
