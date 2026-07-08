@@ -158,9 +158,25 @@ export function focusOnAdjacentMonitor(fromWindow, direction, ctx) {
         return;
 
     const wsIndex = ws.index();
+
+    // Self-heal: adopt any untracked tileable windows on the target monitor
+    // before checking isEmpty().  Mirrors _ensureTracked() for the source
+    // window but applied to the whole target monitor at once.
+    if (ctx.adoptMonitor)
+        ctx.adoptMonitor(wsIndex, targetMon);
+
     const targetTree = ctx.getTree(wsIndex, targetMon);
-    if (targetTree.isEmpty())
+    if (targetTree.isEmpty()) {
+        // Still empty — no tileable windows there.  Focus the topmost
+        // non-minimised window on that monitor as a last resort so the
+        // keybind always does something useful.
+        const wins = ws.list_windows().filter(w =>
+            w.get_monitor() === targetMon && !w.minimized);
+        if (wins.length > 0)
+            global.display.sort_windows_by_stacking(wins).at(-1)
+                ?.activate(global.get_current_time());
         return;
+    }
 
     const workArea = ws.get_work_area_for_monitor(targetMon);
     const innerGap = ctx.settings.get_int('inner-gap');

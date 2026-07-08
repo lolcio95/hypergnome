@@ -182,6 +182,32 @@ export class TilingManager {
     // =========================================================================
 
     /**
+     * Return the tree containing the window, self-healing if the tree lost
+     * track of it.  After disposed-actor churn or a monitor change the
+     * window/tree state can desync (the window is tiled on screen but absent
+     * from any tree); without this, focus/move keybinds silently no-op and
+     * the user "can't move windows with Super+Shift+HJKL".  Re-inserting a
+     * tileable window restores tracking so the keybind works on first press.
+     * @param {Meta.Window} win
+     * @returns {object|null} the containing tree, or null if untileable
+     */
+    _ensureTracked(win) {
+        let tree = this._findTreeContaining(win);
+        if (tree)
+            return tree;
+
+        if (this._floatingWindows.has(win))
+            return null;
+
+        const floatList = this._settings.get_strv('float-list');
+        if (!shouldTile(win, floatList))
+            return null;
+
+        this._insertWindow(win);
+        return this._findTreeContaining(win);
+    }
+
+    /**
      * Move focus to the nearest window in a direction.
      * @param {string} direction - 'left'|'right'|'up'|'down'
      */
@@ -193,7 +219,7 @@ export class TilingManager {
         if (!focused)
             return;
 
-        const tree = this._findTreeContaining(focused);
+        const tree = this._ensureTracked(focused);
         if (!tree)
             return;
 
@@ -222,7 +248,7 @@ export class TilingManager {
         if (!focused)
             return;
 
-        const tree = this._findTreeContaining(focused);
+        const tree = this._ensureTracked(focused);
         if (!tree)
             return;
 
@@ -1604,6 +1630,29 @@ export class TilingManager {
      * Build context object for cross-monitor utility functions.
      * @returns {object}
      */
+    /**
+     * Adopt any untracked tileable windows on a specific monitor into its
+     * per-monitor tree.  Mirrors the per-monitor loop in _tileWorkspaceWindows
+     * but scoped to one monitor so cross-monitor focus can self-heal the
+     * target monitor's tree before checking isEmpty().
+     * @param {number} wsIndex
+     * @param {number} monIndex
+     */
+    _adoptWindowsOnMonitor(wsIndex, monIndex) {
+        const ws = global.workspace_manager.get_workspace_by_index(wsIndex);
+        if (!ws)
+            return;
+        const floatList = this._settings.get_strv('float-list');
+        const tree = this._getTree(wsIndex, monIndex);
+        const untracked = ws.list_windows().filter(w =>
+            w.get_monitor() === monIndex &&
+            shouldTile(w, floatList) &&
+            !this._floatingWindows.has(w) &&
+            !tree.contains(w));
+        for (const w of untracked)
+            this._insertWindow(w);
+    }
+
     _monitorCtx() {
         return {
             findTreeContaining: (w) => this._findTreeContaining(w),
@@ -1614,6 +1663,7 @@ export class TilingManager {
             treeInsert: (tree, w, splitTarget, ratio, rect) =>
                 this._treeInsert(tree, w, splitTarget, ratio, rect),
             treeRemove: (tree, w) => this._treeRemove(tree, w),
+            adoptMonitor: (ws, mon) => this._adoptWindowsOnMonitor(ws, mon),
         };
     }
 
