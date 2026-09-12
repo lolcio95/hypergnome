@@ -31,3 +31,4 @@ docs/
 
 # Shexli local linter venv
 .shexli-venv/
+graphify-out/

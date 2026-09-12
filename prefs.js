@@ -635,6 +635,8 @@ export default class HyperGnomePreferences extends ExtensionPreferences {
                     {key: 'tile-close-window', label: _('Close Window')},
                     {key: 'tile-toggle-split', label: _('Toggle Split')},
                     {key: 'tile-equalize', label: _('Equalize Splits')},
+                    {key: 'tile-restore-last-minimized', label: _('Restore Last Minimized Window')},
+                    {key: 'tile-restore-all-minimized', label: _('Restore All Minimized Windows')},
                 ],
             },
             {

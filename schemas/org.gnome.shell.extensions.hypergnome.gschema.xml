@@ -230,6 +230,18 @@
       <description>Reset all split ratios on the current workspace to 50/50</description>
     </key>
 
+    <key name="tile-restore-last-minimized" type="as">
+      <default><![CDATA[['<Super><Shift>m']]]></default>
+      <summary>Restore last minimized window</summary>
+      <description>Bring back the most recently minimized window on the current workspace (press again to walk back through the stack)</description>
+    </key>
+
+    <key name="tile-restore-all-minimized" type="as">
+      <default><![CDATA[['<Super><Control>m']]]></default>
+      <summary>Restore all minimized windows</summary>
+      <description>Bring back every minimized window on the current workspace</description>
+    </key>
+
     <!-- Keybindings: Master layout -->
     <key name="tile-swap-master" type="as">
       <default><![CDATA[['<Super>Return']]]></default>
