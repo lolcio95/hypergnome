@@ -1,8 +1,10 @@
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+import * as MinimizeActions from './minimizeActions.js';
 import * as WorkspaceActions from './workspaceActions.js';
 
 /**
@@ -25,6 +27,7 @@ export class KeybindingManager {
         this._customBindings = [];
         this._overriddenBindings = [];
         this._settingsChangedId = 0;
+        this._minimizeSignalId = 0;
         this._overrideEnabled = false;
         this._mutterSettings = new Gio.Settings({schema_id: 'org.gnome.mutter'});
         this._shellKeybindingsSettings = new Gio.Settings({schema_id: 'org.gnome.shell.keybindings'});
@@ -33,6 +36,7 @@ export class KeybindingManager {
     enable() {
         this._overrideEnabled = this._settings.get_boolean('override-gnome-shortcuts');
 
+        this._trackMinimizeOrder();
         this._registerCustomBindings();
         if (this._overrideEnabled) {
             this._installGnomeOverrides();
@@ -41,6 +45,13 @@ export class KeybindingManager {
     }
 
     disable() {
+        if (this._minimizeSignalId) {
+            try {
+                global.window_manager.disconnect(this._minimizeSignalId);
+            } catch (_e) {}
+            this._minimizeSignalId = 0;
+        }
+
         if (this._settingsChangedId && this._settings) {
             try {
                 this._settings.disconnect(this._settingsChangedId);
@@ -75,6 +86,23 @@ export class KeybindingManager {
         this._shellKeybindingsSettings = null;
     }
 
+    /**
+     * Stamp each window with the time it was minimized, so the restore
+     * bindings can bring windows back in LIFO order.
+     */
+    _trackMinimizeOrder() {
+        this._minimizeSignalId = global.window_manager.connect('minimize',
+            (_wm, actor) => {
+                try {
+                    const metaWindow = actor?.meta_window;
+                    if (metaWindow)
+                        metaWindow._hypergnomeMinimizedAt = GLib.get_monotonic_time();
+                } catch (e) {
+                    logError(e, 'HyperGnome: minimize tracking');
+                }
+            });
+    }
+
     _registerCustomBindings() {
         // -- Custom keybindings (vim-style focus) --
         this._addBinding('tile-focus-left', () => this._tilingManager.focusDirection('left'));
@@ -93,6 +121,14 @@ export class KeybindingManager {
         this._addBinding('tile-close-window', () => this._tilingManager.closeWindow());
         this._addBinding('tile-toggle-split', () => this._tilingManager.toggleSplit());
         this._addBinding('tile-equalize', () => this._tilingManager.equalize());
+
+        // -- Custom keybindings (restore minimized, LIFO per workspace) --
+        const activeWorkspaceWindows = () =>
+            global.workspace_manager.get_active_workspace().list_windows();
+        this._addBinding('tile-restore-last-minimized',
+            () => MinimizeActions.restoreLast(activeWorkspaceWindows(), global.get_current_time()));
+        this._addBinding('tile-restore-all-minimized',
+            () => MinimizeActions.restoreAll(activeWorkspaceWindows(), global.get_current_time()));
 
         // -- Custom keybindings (master layout) --
         this._addBinding('tile-swap-master',
@@ -140,10 +176,10 @@ export class KeybindingManager {
     _installGnomeOverrides() {
         // -- Override conflicting GNOME keybindings --
 
-        // Super+H is GNOME minimize — conflicts with our focus-left
-        this._overrideBinding('minimize', () => {
-            // Swallowed — our tile-focus-left handles Super+H
-        });
+        // minimize left un-overridden — Super+H still triggers our
+        // tile-focus-left custom keybinding (registered separately below),
+        // GNOME's own minimize action stays free for a rebindable key
+        // (see org.gnome.desktop.wm.keybindings minimize).
 
         // Super+Left/Right is GNOME half-tile — we handle tiling
         this._overrideBinding('toggle-tiled-left', () => {
