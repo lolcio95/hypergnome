@@ -13,6 +13,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {Tree, NodeType, SplitDirection} from './tree.js';
 import {computeLayout, computeNodeRect, findNeighborInDirection} from './layout.js';
 import * as MasterLayout from './masterLayout.js';
+import * as Scratchpad from './scratchpad.js';
 import {moveWindowToMonitor, focusOnAdjacentMonitor} from '../util/monitorUtils.js';
 import {shouldTile} from '../util/windowFilters.js';
 import {unmaximizeWindow, isMaximized, isConstrained, isResizeGrab} from '../util/compat.js';
@@ -52,6 +53,13 @@ export class TilingManager {
         this._enabled = true;
         const display = global.display;
         const wsManager = global.workspace_manager;
+
+        // Scratchpad flags live on the windows, so they survive a
+        // disable/enable cycle (e.g. lock screen) — keep those windows floating.
+        for (const win of display.list_all_windows()) {
+            if (win._hypergnomeScratchpad)
+                this._floatingWindows.add(win);
+        }
 
         // Window creation
         this._signals.connect(display, 'window-created',
@@ -308,6 +316,79 @@ export class TilingManager {
             } else {
                 // Not in any tree — just mark as floating
                 this._floatingWindows.add(focused);
+            }
+        }
+    }
+
+    /**
+     * Add the focused window to the scratchpad (float + hide), or take it
+     * back out if it is already there.
+     */
+    scratchpadSend() {
+        const focused = global.display.get_focus_window();
+        if (!focused)
+            return;
+
+        if (focused._hypergnomeScratchpad) {
+            delete focused._hypergnomeScratchpad;
+            this._floatingWindows.delete(focused);
+            if (this._isTilingActive())
+                this._insertWindow(focused);
+            return;
+        }
+
+        focused._hypergnomeScratchpad = true;
+        const tree = this._findTreeContaining(focused);
+        if (tree) {
+            this._treeRemove(tree, focused);
+            delete focused._hypergnomeTiledRect;
+            this._queueRelayout();
+        }
+        this._floatingWindows.add(focused);
+        this._connectWindowSignals(focused);
+        focused.minimize();
+    }
+
+    /**
+     * Show scratchpad windows on the active workspace, centered on the
+     * current monitor — or hide them if they are already shown here.
+     */
+    scratchpadToggle() {
+        const display = global.display;
+        const activeWs = global.workspace_manager.get_active_workspace();
+        const members = display.list_all_windows()
+            .filter(w => w._hypergnomeScratchpad);
+        const plan = Scratchpad.planToggle(members, activeWs);
+
+        if (plan.action === 'hide') {
+            for (const win of plan.windows)
+                win.minimize();
+            return;
+        }
+        if (plan.action !== 'show')
+            return;
+
+        const monIndex = display.get_current_monitor();
+        const workArea = activeWs.get_work_area_for_monitor(monIndex);
+        const time = global.get_current_time();
+        for (const win of plan.windows) {
+            try {
+                this._floatingWindows.add(win);
+                if (!win.is_on_all_workspaces() && win.get_workspace() !== activeWs) {
+                    this._movingWindow = win;
+                    win.change_workspace(activeWs);
+                    this._movingWindow = null;
+                }
+                if (win.get_monitor() !== monIndex)
+                    win.move_to_monitor(monIndex);
+                win.unminimize();
+                const rect = Scratchpad.centerRect(win.get_frame_rect(), workArea);
+                blockWindowSignals(win);
+                win.move_resize_frame(false, rect.x, rect.y, rect.width, rect.height);
+                win.activate(time);
+            } catch (e) {
+                this._movingWindow = null;
+                logError(e, 'HyperGnome: scratchpad show');
             }
         }
     }

@@ -637,6 +637,8 @@ export default class HyperGnomePreferences extends ExtensionPreferences {
                     {key: 'tile-equalize', label: _('Equalize Splits')},
                     {key: 'tile-restore-last-minimized', label: _('Restore Last Minimized Window')},
                     {key: 'tile-restore-all-minimized', label: _('Restore All Minimized Windows')},
+                    {key: 'tile-scratchpad-toggle', label: _('Toggle Scratchpad')},
+                    {key: 'tile-scratchpad-send', label: _('Send Window to Scratchpad')},
                 ],
             },
             {

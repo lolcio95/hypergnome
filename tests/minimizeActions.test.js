@@ -63,6 +63,12 @@ describe('minimizedWindows', () => {
             ['old1', 'old2', 'stamped']);
     });
 
+    it('leaves scratchpad windows to the scratchpad toggle', () => {
+        const pad = mockWindow('pad', {stamp: 9});
+        pad._hypergnomeScratchpad = true;
+        assert.deepEqual(minimizedWindows([pad]), []);
+    });
+
     it('treats throwing windows (being unmanaged) as not restorable', () => {
         const broken = mockWindow('broken');
         broken.get_window_type = () => {
