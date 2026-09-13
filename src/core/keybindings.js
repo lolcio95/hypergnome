@@ -130,6 +130,12 @@ export class KeybindingManager {
         this._addBinding('tile-restore-all-minimized',
             () => MinimizeActions.restoreAll(activeWorkspaceWindows(), global.get_current_time()));
 
+        // -- Custom keybindings (scratchpad, Hyprland special workspace) --
+        this._addBinding('tile-scratchpad-toggle',
+            () => this._tilingManager.scratchpadToggle());
+        this._addBinding('tile-scratchpad-send',
+            () => this._tilingManager.scratchpadSend());
+
         // -- Custom keybindings (master layout) --
         this._addBinding('tile-swap-master',
             () => this._tilingManager.swapWithMaster());

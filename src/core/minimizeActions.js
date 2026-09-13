@@ -20,6 +20,9 @@ function isRestorable(metaWindow) {
     try {
         if (!metaWindow.minimized)
             return false;
+        // Scratchpad windows come back through the scratchpad toggle.
+        if (metaWindow._hypergnomeScratchpad)
+            return false;
         if (metaWindow.get_window_type() !== NORMAL_WINDOW_TYPE)
             return false;
         if (metaWindow.is_skip_taskbar())

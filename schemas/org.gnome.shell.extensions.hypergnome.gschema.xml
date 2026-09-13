@@ -236,6 +236,18 @@
       <description>Bring back the most recently minimized window on the current workspace (press again to walk back through the stack)</description>
     </key>
 
+    <key name="tile-scratchpad-toggle" type="as">
+      <default><![CDATA[['<Super>s']]]></default>
+      <summary>Toggle scratchpad</summary>
+      <description>Show scratchpad windows on the current workspace, or hide them if already shown</description>
+    </key>
+
+    <key name="tile-scratchpad-send" type="as">
+      <default><![CDATA[['<Super><Shift>s']]]></default>
+      <summary>Send window to scratchpad</summary>
+      <description>Move the focused window into the scratchpad (hidden, floating), or take it back out</description>
+    </key>
+
     <key name="tile-restore-all-minimized" type="as">
       <default><![CDATA[['<Super><Control>m']]]></default>
       <summary>Restore all minimized windows</summary>
